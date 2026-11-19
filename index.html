@@ -1,0 +1,2053 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>CotaPro — Sistema de Coleta de Preços e Mapa Comparativo</title>
+  
+  <!-- Tailwind CSS via CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  
+  <!-- Google Fonts: Inter -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+  
+  <!-- Font Awesome -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+  
+  <!-- jsPDF e jsPDF-AutoTable -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
+
+  <!-- SheetJS (xlsx) -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: { sans: ['Inter', 'sans-serif'] }
+        }
+      }
+    }
+  </script>
+
+  <style>
+    body { font-family: 'Inter', sans-serif; }
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(6px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    .animate-fade-in { animation: fadeIn 0.25s ease-out forwards; }
+  </style>
+</head>
+<body class="bg-slate-100 text-slate-800 min-h-screen flex flex-col">
+
+  <!-- CONTAINER DE NOTIFICAÇÕES -->
+  <div id="toast-container" class="fixed top-4 right-4 z-50 flex flex-col gap-2 max-w-sm w-full pointer-events-none px-4 sm:px-0"></div>
+
+  <!-- MODAL GENÉRICO -->
+  <div id="custom-modal" class="fixed inset-0 z-40 hidden items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4">
+    <div class="bg-white rounded-2xl shadow-2xl border border-slate-200 max-w-2xl w-full overflow-hidden animate-fade-in">
+      <div class="px-6 py-4 border-b border-slate-100 flex items-center justify-between bg-slate-50">
+        <h3 id="modal-title" class="text-base font-bold text-slate-900">Título</h3>
+        <button type="button" onclick="closeModal()" class="text-slate-400 hover:text-slate-700 p-1.5 rounded-lg hover:bg-slate-200/70 transition">
+          <i class="fa-solid fa-xmark"></i>
+        </button>
+      </div>
+      <div id="modal-body" class="p-6 max-h-[75vh] overflow-y-auto"></div>
+      <div id="modal-footer" class="px-6 py-3.5 bg-slate-50 border-t border-slate-100 flex flex-wrap items-center justify-end gap-2"></div>
+    </div>
+  </div>
+
+  <!-- ===================================================================== -->
+  <!-- CABEÇALHO DO ADMINISTRADOR (OCULTO NO MODO FORNECEDOR)                -->
+  <!-- ===================================================================== -->
+  <header id="admin-header" class="hidden bg-white border-b border-slate-200 sticky top-0 z-30 shadow-2xs">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3.5 flex flex-col md:flex-row md:items-center justify-between gap-3">
+      <div class="flex items-center justify-between">
+        <div class="flex items-center gap-3">
+          <div class="w-10 h-10 rounded-xl bg-gradient-to-br from-blue-600 to-indigo-700 text-white flex items-center justify-center shadow-sm">
+            <i class="fa-solid fa-scale-balanced text-lg"></i>
+          </div>
+          <div>
+            <div class="flex items-center gap-2">
+              <h1 class="text-lg font-extrabold tracking-tight text-slate-900">CotaPro</h1>
+              <span class="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 border border-blue-200">Painel Administrativo</span>
+            </div>
+            <p class="text-xs text-slate-500 hidden sm:block">Gestão de cotações, mapa comparativo e apuração de vencedores</p>
+          </div>
+        </div>
+      </div>
+
+      <div class="flex flex-wrap items-center gap-2 sm:gap-2.5">
+        <!-- Seletor de Cotação Ativa -->
+        <div class="flex items-center gap-1 bg-slate-100 p-1 rounded-xl border border-slate-200">
+          <select id="active-quote-select" onchange="switchActiveQuote(this.value)" class="bg-transparent text-xs font-semibold text-slate-800 px-2.5 py-1.5 outline-none max-w-[180px] sm:max-w-[230px] truncate cursor-pointer">
+          </select>
+          <button type="button" onclick="openNewQuoteModal()" title="Criar Nova Cotação" class="px-2.5 py-1.5 rounded-lg bg-blue-600 text-white hover:bg-blue-700 text-xs font-bold shadow-2xs transition">
+            <i class="fa-solid fa-plus"></i>
+          </button>
+          <button type="button" onclick="openSavedQuotesManagerModal()" title="Gerenciar Todas as Cotações Salvas" class="px-2.5 py-1.5 rounded-lg bg-white text-slate-700 hover:bg-slate-200 text-xs font-bold shadow-2xs transition">
+            <i class="fa-solid fa-folder-open"></i>
+          </button>
+        </div>
+
+        <!-- Botão Atualizar / Sincronizar Sheets -->
+        <button type="button" onclick="manualSyncFromCloud()" title="Buscar novas respostas dos fornecedores no Google Sheets" class="px-3 py-2 rounded-xl text-xs font-semibold bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200 transition flex items-center gap-1.5">
+          <i id="sync-icon" class="fa-solid fa-rotate"></i>
+          <span class="hidden sm:inline">Sincronizar</span>
+        </button>
+
+        <!-- Botão Configurar API / Senha -->
+        <button type="button" onclick="openCloudAndSecurityModal()" title="Configurar URL do Google Apps Script e Senha Admin" class="px-3 py-2 rounded-xl text-xs font-semibold bg-slate-100 text-slate-700 hover:bg-slate-200 border border-slate-200 transition flex items-center gap-1.5">
+          <i class="fa-solid fa-gear"></i>
+          <span class="hidden sm:inline">Configurações</span>
+        </button>
+
+        <!-- Botão Sair (Logout Admin) -->
+        <button type="button" onclick="logoutAdmin()" title="Bloquear Painel Administrativo" class="px-3 py-2 rounded-xl text-xs font-semibold bg-rose-50 text-rose-700 hover:bg-rose-100 border border-rose-200 transition flex items-center gap-1.5">
+          <i class="fa-solid fa-right-from-bracket"></i>
+          <span class="hidden sm:inline">Sair</span>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <!-- CABEÇALHO EXCLUSIVO DO FORNECEDOR (SEM CONTROLES ADMIN) -->
+  <header id="supplier-header" class="hidden bg-white border-b border-slate-200 shadow-2xs">
+    <div class="max-w-4xl mx-auto px-4 sm:px-6 py-3.5 flex items-center justify-between">
+      <div class="flex items-center gap-3">
+        <div class="w-9 h-9 rounded-xl bg-gradient-to-br from-blue-600 to-indigo-700 text-white flex items-center justify-center shadow-sm">
+          <i class="fa-solid fa-file-invoice-dollar"></i>
+        </div>
+        <div>
+          <h1 class="text-base font-extrabold tracking-tight text-slate-900">CotaPro</h1>
+          <p class="text-[11px] text-slate-500">Portal Oficial de Envio de Propostas</p>
+        </div>
+      </div>
+      <span class="text-xs font-semibold px-3 py-1 rounded-full bg-blue-50 text-blue-700 border border-blue-200">
+        <i class="fa-solid fa-shield-halved mr-1"></i>Ambiente do Fornecedor
+      </span>
+    </div>
+  </header>
+
+  <!-- CONTEÚDO PRINCIPAL -->
+  <main class="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6">
+
+    <!-- ===================================================================== -->
+    <!-- TELA DE LOGIN DO ADMINISTRADOR                                        -->
+    <!-- ===================================================================== -->
+    <div id="admin-login-view" class="hidden max-w-md mx-auto mt-10 animate-fade-in">
+      <div class="bg-white rounded-2xl border border-slate-200 shadow-lg p-7 space-y-6">
+        <div class="text-center space-y-2">
+          <div class="w-14 h-14 rounded-2xl bg-gradient-to-br from-blue-600 to-indigo-700 text-white flex items-center justify-center mx-auto text-2xl shadow-md">
+            <i class="fa-solid fa-user-shield"></i>
+          </div>
+          <h2 class="text-xl font-extrabold text-slate-900">Acesso Restrito — Administrador</h2>
+          <p class="text-xs text-slate-500">Digite a senha administrativa para gerenciar cotações, gerar links de fornecedores e apurar vencedores.</p>
+        </div>
+
+        <form onsubmit="handleAdminLogin(event)" class="space-y-4">
+          <div>
+            <label class="block text-xs font-bold uppercase tracking-wider text-slate-600 mb-1.5">Senha do Administrador *</label>
+            <div class="relative">
+              <i class="fa-solid fa-lock text-slate-400 absolute left-3.5 top-3.5 text-sm"></i>
+              <input id="admin-login-pin" type="password" required placeholder="Digite sua senha..." class="w-full rounded-xl border border-slate-300 pl-10 pr-4 py-2.5 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none" />
+            </div>
+            <p class="text-[11px] text-slate-400 mt-1.5">Senha inicial padrão: <code class="bg-slate-100 px-1.5 py-0.5 rounded text-slate-700 font-mono">admin123</code> (altere nas Configurações após entrar).</p>
+          </div>
+
+          <div id="login-api-config-box" class="bg-slate-50 border border-slate-200 rounded-xl p-3 space-y-1.5">
+            <label class="block text-[11px] font-bold uppercase text-slate-600">URL do Google Apps Script (Backend)</label>
+            <input id="login-apps-script-url" type="url" placeholder="https://script.google.com/macros/s/.../exec" class="w-full rounded-lg border border-slate-300 px-2.5 py-1.5 text-xs font-mono bg-white outline-none focus:ring-2 focus:ring-blue-500" />
+            <p class="text-[10px] text-slate-500">Obrigatória para salvar no Google Sheets e receber propostas online.</p>
+          </div>
+
+          <button id="btn-admin-login-submit" type="submit" class="w-full py-3 px-6 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-sm transition flex items-center justify-center gap-2 shadow-md">
+            <i class="fa-solid fa-right-to-bracket"></i>
+            <span>Entrar no Painel Administrativo</span>
+          </button>
+        </form>
+      </div>
+    </div>
+
+    <!-- ===================================================================== -->
+    <!-- VISÃO 1: PAINEL DO ADMINISTRADOR                                      -->
+    <!-- ===================================================================== -->
+    <div id="admin-view" class="hidden space-y-6 animate-fade-in">
+      
+      <!-- Card Superior: Título da Cotação, Ações (Editar, Apagar, Finalizar) e Link do Fornecedor -->
+      <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 sm:p-6 space-y-5">
+        <div class="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+          <div class="space-y-1">
+            <div class="flex flex-wrap items-center gap-2">
+              <span id="admin-quote-badge" class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                <span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span> Recebendo Propostas
+              </span>
+              <span id="admin-quote-id-label" class="font-mono text-xs font-semibold text-slate-500">ID: #COT-001</span>
+              <span id="admin-quote-deadline-label" class="text-xs text-slate-500"></span>
+            </div>
+            <div class="flex items-center gap-2">
+              <h2 id="admin-quote-title" class="text-xl sm:text-2xl font-extrabold text-slate-900">Cotação de Materiais</h2>
+              <button type="button" onclick="openEditQuoteModal()" title="Editar Título e Prazo" class="text-slate-400 hover:text-blue-600 p-1.5 rounded-lg hover:bg-blue-50 transition">
+                <i class="fa-solid fa-pen-to-square text-sm"></i>
+              </button>
+              <button type="button" onclick="confirmDeleteActiveQuote()" title="Apagar esta Cotação Permanentemente" class="text-slate-400 hover:text-rose-600 p-1.5 rounded-lg hover:bg-rose-50 transition">
+                <i class="fa-solid fa-trash-can text-sm"></i>
+              </button>
+            </div>
+          </div>
+
+          <div class="flex flex-wrap items-center gap-2.5">
+            <button type="button" onclick="openSavedQuotesManagerModal()" class="px-3.5 py-2.5 rounded-xl text-xs sm:text-sm font-semibold bg-slate-100 text-slate-700 hover:bg-slate-200 transition flex items-center gap-2">
+              <i class="fa-solid fa-folder-open"></i>
+              <span>Cotações Salvas</span>
+            </button>
+            <button id="btn-toggle-finalize" type="button" onclick="toggleFinalizeQuote()" class="px-4 py-2.5 rounded-xl text-xs sm:text-sm font-semibold bg-indigo-600 text-white hover:bg-indigo-700 transition flex items-center gap-2 shadow-sm">
+              <i class="fa-solid fa-flag-checkered"></i>
+              <span>Finalizar Pesquisa</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- Barra de Link Exclusivo para Fornecedores desta Cotação -->
+        <div class="bg-blue-50/80 border border-blue-200 rounded-xl p-3.5 flex flex-col sm:flex-row sm:items-center gap-3">
+          <div class="flex items-center gap-2 text-blue-900 shrink-0">
+            <i class="fa-solid fa-link"></i>
+            <span class="text-xs font-bold uppercase tracking-wider">Link Exclusivo do Fornecedor:</span>
+          </div>
+          <div class="flex-1 flex items-center gap-2">
+            <input id="supplier-share-url" type="text" readonly class="w-full bg-white border border-blue-200 rounded-lg px-3 py-1.5 text-xs font-mono text-slate-700 outline-none" />
+            <button type="button" onclick="copySupplierLink()" class="px-3.5 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold transition shrink-0 flex items-center gap-1.5 shadow-2xs">
+              <i class="fa-regular fa-copy"></i>
+              <span>Copiar Link</span>
+            </button>
+            <a id="supplier-preview-anchor" href="#" target="_blank" rel="noopener noreferrer" title="Abrir link do fornecedor em nova aba" class="px-3 py-1.5 rounded-lg bg-white hover:bg-blue-100 text-blue-700 border border-blue-200 text-xs font-bold transition shrink-0">
+              <i class="fa-solid fa-arrow-up-right-from-square"></i>
+            </a>
+          </div>
+        </div>
+
+        <!-- Navegação entre Sub-Abas do Admin -->
+        <div class="border-b border-slate-200 flex items-center gap-6 overflow-x-auto">
+          <button id="tab-btn-setup" type="button" onclick="switchAdminTab('setup')" class="pb-3 text-sm font-bold border-b-2 border-blue-600 text-blue-600 flex items-center gap-2 whitespace-nowrap transition">
+            <i class="fa-solid fa-list-check"></i>
+            <span>1. Itens & Fornecedores Participantes</span>
+            <span id="badge-suppliers-count" class="px-2 py-0.5 rounded-full text-xs bg-blue-100 text-blue-700">0</span>
+          </button>
+          <button id="tab-btn-results" type="button" onclick="switchAdminTab('results')" class="pb-3 text-sm font-semibold border-b-2 border-transparent text-slate-500 hover:text-slate-800 flex items-center gap-2 whitespace-nowrap transition">
+            <i class="fa-solid fa-trophy"></i>
+            <span>2. Mapa de Vencedores, Filtros & PDF</span>
+            <span id="badge-finalized-status" class="hidden px-2 py-0.5 rounded-full text-[10px] font-bold bg-indigo-100 text-indigo-700">Apurado</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- SUB-ABA 1: CADASTRO DE ITENS E LISTA DE FORNECEDORES -->
+      <div id="admin-tab-setup" class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+        
+        <!-- Coluna Esquerda (7 cols): Itens -->
+        <div class="lg:col-span-7 bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden flex flex-col">
+          <div class="p-5 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div>
+              <div class="flex items-center gap-2">
+                <h3 class="text-base font-bold text-slate-900">Itens da Cotação</h3>
+                <span id="items-count-label" class="text-xs font-bold px-2.5 py-0.5 rounded-lg bg-slate-100 text-slate-700">0 itens</span>
+              </div>
+              <p class="text-xs text-slate-500 mt-0.5">Adicione, edite ou importe itens via planilha Excel (.xlsx).</p>
+            </div>
+
+            <div class="flex flex-wrap items-center gap-2 shrink-0">
+              <button type="button" onclick="exportItemsToExcel()" class="px-3 py-2 rounded-xl text-xs font-semibold bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200 transition flex items-center gap-1.5">
+                <i class="fa-solid fa-file-excel"></i>
+                <span>Modelo Excel</span>
+              </button>
+              <button type="button" onclick="triggerExcelImport()" class="px-3 py-2 rounded-xl text-xs font-semibold bg-blue-50 text-blue-700 hover:bg-blue-100 border border-blue-200 transition flex items-center gap-1.5">
+                <i class="fa-solid fa-file-import"></i>
+                <span>Importar Excel</span>
+              </button>
+              <input id="excel-file-input" type="file" accept=".xlsx,.xls,.csv" onchange="handleExcelFileSelect(event)" class="hidden" />
+            </div>
+          </div>
+
+          <!-- Formulário de Adição de Item -->
+          <form id="add-item-form" onsubmit="handleAddItem(event)" class="p-4 bg-slate-50 border-b border-slate-200 grid grid-cols-1 sm:grid-cols-12 gap-3">
+            <div class="sm:col-span-6">
+              <label class="block text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1">Descrição do Item *</label>
+              <input id="new-item-desc" type="text" required placeholder="Ex: Papel Sulfite A4 75g Caixa 10 Resmas" class="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none bg-white" />
+            </div>
+            <div class="sm:col-span-3">
+              <label class="block text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1">Unidade *</label>
+              <select id="new-item-unit" class="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none bg-white">
+                <option value="UN">UN</option>
+                <option value="CX">CX</option>
+                <option value="KG">KG</option>
+                <option value="LT">LT</option>
+                <option value="M">M</option>
+                <option value="M²">M²</option>
+                <option value="PC">PC</option>
+                <option value="PCT">PCT</option>
+                <option value="FD">FD</option>
+                <option value="GL">GL</option>
+                <option value="SV">SV</option>
+              </select>
+            </div>
+            <div class="sm:col-span-3 flex flex-col justify-end">
+              <label class="block text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1">Quantidade *</label>
+              <div class="flex gap-2">
+                <input id="new-item-qty" type="number" step="any" min="0.01" required placeholder="10" class="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none bg-white" />
+                <button type="submit" title="Adicionar Item" class="px-3.5 py-2 rounded-xl bg-blue-600 text-white hover:bg-blue-700 font-semibold text-sm transition shrink-0 shadow-sm">
+                  <i class="fa-solid fa-plus"></i>
+                </button>
+              </div>
+            </div>
+          </form>
+
+          <!-- Tabela de Itens Cadastrados (Descrição e Quantidade Editáveis) -->
+          <div class="overflow-x-auto flex-1">
+            <table class="w-full text-left border-collapse">
+              <thead>
+                <tr class="border-b border-slate-200 bg-slate-50/50 text-[11px] font-bold uppercase tracking-wider text-slate-500">
+                  <th class="py-3 px-4 w-10">#</th>
+                  <th class="py-3 px-4">Descrição (Editável)</th>
+                  <th class="py-3 px-4 w-24">Unidade</th>
+                  <th class="py-3 px-4 w-28">Quantidade</th>
+                  <th class="py-3 px-4 w-16 text-right">Ações</th>
+                </tr>
+              </thead>
+              <tbody id="admin-items-tbody" class="divide-y divide-slate-100 text-sm"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Coluna Direita (5 cols): Fornecedores Concluídos -->
+        <div class="lg:col-span-5 bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden flex flex-col">
+          <div class="p-5 border-b border-slate-100 flex items-center justify-between bg-gradient-to-r from-slate-50 to-white">
+            <div>
+              <h3 class="text-base font-bold text-slate-900 flex items-center gap-2">
+                <i class="fa-solid fa-building-circle-check text-emerald-600"></i>
+                <span>Fornecedores Concluídos</span>
+              </h3>
+              <p class="text-xs text-slate-500">Propostas enviadas pelo link exclusivo.</p>
+            </div>
+            <span id="suppliers-total-pill" class="text-xs font-bold px-2.5 py-1 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">0 propostas</span>
+          </div>
+
+          <div id="suppliers-list-container" class="p-4 space-y-3 flex-1 overflow-y-auto max-h-[540px]"></div>
+
+          <div class="p-4 bg-slate-50 border-t border-slate-100">
+            <button type="button" onclick="toggleFinalizeQuote()" class="w-full py-2.5 px-4 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-sm transition flex items-center justify-center gap-2 shadow-sm">
+              <i class="fa-solid fa-chart-simple"></i>
+              <span>Finalizar Pesquisa e Apurar Vencedores</span>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- SUB-ABA 2: APURAÇÃO DE VENCEDORES, FILTROS POR COLUNA E PDF -->
+      <div id="admin-tab-results" class="hidden space-y-6">
+        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          <div class="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
+            <div class="flex items-center justify-between">
+              <span class="text-xs font-semibold text-slate-500 uppercase">Valor Total (Filtro Atual)</span>
+              <div class="w-8 h-8 rounded-lg bg-emerald-50 text-emerald-600 flex items-center justify-center"><i class="fa-solid fa-sack-dollar"></i></div>
+            </div>
+            <p id="kpi-total-value" class="text-2xl font-extrabold text-slate-900 mt-2">R$ 0,00</p>
+            <p id="kpi-filtered-items-info" class="text-xs text-slate-500 mt-1">Exibindo 0 de 0 itens</p>
+          </div>
+
+          <div class="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
+            <div class="flex items-center justify-between">
+              <span class="text-xs font-semibold text-slate-500 uppercase">Propostas Recebidas</span>
+              <div class="w-8 h-8 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center"><i class="fa-solid fa-users"></i></div>
+            </div>
+            <p id="kpi-suppliers-count" class="text-2xl font-extrabold text-slate-900 mt-2">0</p>
+            <p class="text-xs text-slate-500 mt-1">Fornecedores participantes</p>
+          </div>
+
+          <div class="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
+            <div class="flex items-center justify-between">
+              <span class="text-xs font-semibold text-slate-500 uppercase">Economia vs Maior Preço</span>
+              <div class="w-8 h-8 rounded-lg bg-indigo-50 text-indigo-600 flex items-center justify-center"><i class="fa-solid fa-piggy-bank"></i></div>
+            </div>
+            <p id="kpi-savings-value" class="text-2xl font-extrabold text-indigo-600 mt-2">R$ 0,00</p>
+            <p id="kpi-savings-percent" class="text-xs text-slate-500 mt-1">0% de economia obtida</p>
+          </div>
+
+          <div class="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm flex flex-col justify-between">
+            <div class="flex items-center justify-between">
+              <span class="text-xs font-semibold text-slate-500 uppercase">Exportação</span>
+              <div class="w-8 h-8 rounded-lg bg-rose-50 text-rose-600 flex items-center justify-center"><i class="fa-solid fa-file-pdf"></i></div>
+            </div>
+            <button type="button" onclick="generateFilteredPDF()" class="mt-2 w-full py-2.5 px-4 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs sm:text-sm transition flex items-center justify-center gap-2 shadow-sm">
+              <i class="fa-solid fa-download"></i>
+              <span>Gerar PDF (Filtro Atual)</span>
+            </button>
+          </div>
+        </div>
+
+        <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-5">
+          <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-3">
+            <div>
+              <h3 class="text-sm font-bold text-slate-900 flex items-center gap-2">
+                <i class="fa-solid fa-award text-amber-500"></i>
+                <span>Resumo por Empresa Vencedora</span>
+              </h3>
+              <p class="text-xs text-slate-500">Clique em uma empresa abaixo para filtrar apenas os itens ganhos por ela.</p>
+            </div>
+            <button type="button" onclick="clearAllColumnFilters()" class="text-xs font-semibold text-blue-600 hover:text-blue-800 bg-blue-50 hover:bg-blue-100 px-3 py-1.5 rounded-lg transition self-start sm:self-auto">
+              <i class="fa-solid fa-filter-circle-xmark mr-1"></i>Limpar Todos os Filtros
+            </button>
+          </div>
+          <div id="winners-summary-cards" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3"></div>
+        </div>
+
+        <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+          <div class="p-5 border-b border-slate-100 flex flex-col md:flex-row md:items-center justify-between gap-3">
+            <div>
+              <h3 class="text-base font-bold text-slate-900">Mapa Comparativo e Relação de Vencedores por Item</h3>
+              <p class="text-xs text-slate-500">Edite quantidades, alterne o vencedor no seletor ou filtre qualquer coluna.</p>
+            </div>
+            <div class="flex items-center gap-2">
+              <button type="button" onclick="resetAllWinnerOverrides()" class="px-3 py-2 rounded-xl text-xs font-semibold bg-slate-100 text-slate-700 hover:bg-slate-200 transition">
+                <i class="fa-solid fa-rotate-left mr-1"></i>Restaurar 1ºs Colocados
+              </button>
+              <button type="button" onclick="generateFilteredPDF()" class="px-4 py-2 rounded-xl text-xs font-bold bg-rose-600 text-white hover:bg-rose-700 transition flex items-center gap-2 shadow-sm">
+                <i class="fa-solid fa-file-pdf"></i>
+                <span>Exportar PDF</span>
+              </button>
+            </div>
+          </div>
+
+          <div class="overflow-x-auto">
+            <table class="w-full text-left border-collapse min-w-[1050px]">
+              <thead>
+                <tr class="bg-slate-100 border-b border-slate-200 text-[11px] font-bold uppercase tracking-wider text-slate-600">
+                  <th class="py-3 px-3 w-12 text-center">#</th>
+                  <th class="py-3 px-3 min-w-[210px]">Descrição do Item</th>
+                  <th class="py-3 px-3 w-24">Unid.</th>
+                  <th class="py-3 px-3 w-28">Qtd.</th>
+                  <th class="py-3 px-3 min-w-[240px]">Empresa Vencedora / Colocação</th>
+                  <th class="py-3 px-3 min-w-[170px]">Observação</th>
+                  <th class="py-3 px-3 w-32 text-right">Valor Unit.</th>
+                  <th class="py-3 px-3 w-36 text-right">Valor Total</th>
+                </tr>
+                <tr class="bg-slate-50 border-b border-slate-200">
+                  <th class="p-2 text-center"><i class="fa-solid fa-filter text-slate-400 text-xs"></i></th>
+                  <th class="p-2"><input id="filter-desc" oninput="applyResultsFilters()" type="text" placeholder="Filtrar..." class="w-full rounded-lg border border-slate-300 px-2.5 py-1.5 text-xs font-normal outline-none bg-white" /></th>
+                  <th class="p-2"><select id="filter-unit" onchange="applyResultsFilters()" class="w-full rounded-lg border border-slate-300 px-2 py-1.5 text-xs font-normal outline-none bg-white"><option value="">Todas</option></select></th>
+                  <th class="p-2"><input id="filter-qty" oninput="applyResultsFilters()" type="text" placeholder="Ex: >5" class="w-full rounded-lg border border-slate-300 px-2 py-1.5 text-xs font-normal outline-none bg-white" /></th>
+                  <th class="p-2"><select id="filter-winner" onchange="applyResultsFilters()" class="w-full rounded-lg border border-slate-300 px-2 py-1.5 text-xs font-normal outline-none bg-white"><option value="">Todas</option></select></th>
+                  <th class="p-2"><input id="filter-obs" oninput="applyResultsFilters()" type="text" placeholder="Obs..." class="w-full rounded-lg border border-slate-300 px-2.5 py-1.5 text-xs font-normal outline-none bg-white" /></th>
+                  <th class="p-2"><input id="filter-unit-price" oninput="applyResultsFilters()" type="text" placeholder="Máx R$..." class="w-full rounded-lg border border-slate-300 px-2 py-1.5 text-xs font-normal text-right outline-none bg-white" /></th>
+                  <th class="p-2"><input id="filter-total-price" oninput="applyResultsFilters()" type="text" placeholder="Máx Total..." class="w-full rounded-lg border border-slate-300 px-2 py-1.5 text-xs font-normal text-right outline-none bg-white" /></th>
+                </tr>
+              </thead>
+              <tbody id="results-tbody" class="divide-y divide-slate-100 text-sm"></tbody>
+              <tfoot>
+                <tr class="bg-slate-900 text-white font-bold">
+                  <td colspan="7" class="py-4 px-4 text-right text-xs sm:text-sm uppercase tracking-wider">Valor Total Geral (Conforme Filtro):</td>
+                  <td id="table-footer-total" class="py-4 px-4 text-right text-base sm:text-lg text-emerald-400 font-extrabold whitespace-nowrap">R$ 0,00</td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ===================================================================== -->
+    <!-- VISÃO 2: PORTAL DO FORNECEDOR (ISOLADO — SEM ACESSO AO PAINEL ADMIN)   -->
+    <!-- ===================================================================== -->
+    <div id="supplier-view" class="hidden max-w-4xl mx-auto space-y-6 animate-fade-in">
+      
+      <!-- Tela de Carregamento da Cotação -->
+      <div id="supplier-loading-box" class="bg-white rounded-2xl border border-slate-200 p-10 text-center space-y-3 shadow-sm">
+        <i class="fa-solid fa-circle-notch fa-spin text-3xl text-blue-600"></i>
+        <p class="text-sm font-semibold text-slate-700">Carregando itens da cotação...</p>
+      </div>
+
+      <!-- Tela de Erro / Cotação Inválida -->
+      <div id="supplier-error-box" class="hidden bg-white rounded-2xl border border-rose-200 p-8 text-center space-y-3 shadow-sm">
+        <div class="w-12 h-12 rounded-full bg-rose-100 text-rose-600 flex items-center justify-center mx-auto text-xl">
+          <i class="fa-solid fa-triangle-exclamation"></i>
+        </div>
+        <h3 class="text-lg font-bold text-slate-900">Cotação Indisponível</h3>
+        <p id="supplier-error-message" class="text-sm text-slate-600 max-w-md mx-auto">O link acessado é inválido ou esta cotação foi removida pelo comprador.</p>
+      </div>
+
+      <!-- Conteúdo Principal do Fornecedor -->
+      <div id="supplier-main-content" class="hidden space-y-6">
+        <div class="bg-gradient-to-r from-blue-700 to-indigo-800 rounded-2xl p-6 text-white shadow-lg">
+          <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div>
+              <span class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-white/15 text-blue-100 mb-2">
+                <i class="fa-solid fa-file-signature"></i>
+                Formulário de Cotação de Preços
+              </span>
+              <h2 id="sup-quote-title" class="text-xl sm:text-2xl font-extrabold tracking-tight">Cotação de Preços</h2>
+              <p id="sup-quote-meta" class="text-xs sm:text-sm text-blue-100 mt-1">Preencha seus dados e informe os valores unitários para cada item.</p>
+            </div>
+            <div class="bg-white/10 backdrop-blur-sm rounded-xl p-3 border border-white/15 text-right shrink-0">
+              <span class="block text-[11px] uppercase tracking-wider text-blue-200">Código</span>
+              <span id="sup-quote-id" class="font-mono font-bold text-sm">#COT-001</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Alerta caso cotação esteja finalizada -->
+        <div id="supplier-closed-alert" class="hidden bg-amber-50 border border-amber-200 rounded-2xl p-8 text-center space-y-3">
+          <div class="w-12 h-12 rounded-full bg-amber-100 text-amber-600 flex items-center justify-center mx-auto text-xl">
+            <i class="fa-solid fa-lock"></i>
+          </div>
+          <h3 class="text-lg font-bold text-amber-900">Cotação Encerrada</h3>
+          <p class="text-sm text-amber-700 max-w-md mx-auto">O recebimento de propostas para esta pesquisa de preços já foi finalizado.</p>
+        </div>
+
+        <!-- ETAPA 1: IDENTIFICAÇÃO -->
+        <div id="supplier-step-1" class="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 sm:p-8">
+          <div class="max-w-lg mx-auto space-y-6">
+            <div class="text-center space-y-2">
+              <div class="w-12 h-12 rounded-2xl bg-blue-50 text-blue-600 flex items-center justify-center mx-auto text-xl">
+                <i class="fa-solid fa-building"></i>
+              </div>
+              <h3 class="text-xl font-bold text-slate-900">Identificação do Fornecedor</h3>
+              <p class="text-sm text-slate-500">Informe os dados da sua empresa e do vendedor responsável para visualizar os itens.</p>
+            </div>
+
+            <form onsubmit="handleSupplierIdentification(event)" class="space-y-4">
+              <div>
+                <label class="block text-xs font-bold uppercase tracking-wider text-slate-600 mb-1.5">Nome da Empresa / Razão Social *</label>
+                <div class="relative">
+                  <i class="fa-solid fa-building text-slate-400 absolute left-3.5 top-3.5 text-sm"></i>
+                  <input id="sup-company-name" type="text" required placeholder="Ex: Distribuidora Comercial Silva Ltda" class="w-full rounded-xl border border-slate-300 pl-10 pr-4 py-2.5 text-sm focus:ring-2 focus:ring-blue-500 outline-none" />
+                </div>
+              </div>
+
+              <div>
+                <label class="block text-xs font-bold uppercase tracking-wider text-slate-600 mb-1.5">Nome do Vendedor / Representante *</label>
+                <div class="relative">
+                  <i class="fa-solid fa-user-tie text-slate-400 absolute left-3.5 top-3.5 text-sm"></i>
+                  <input id="sup-seller-name" type="text" required placeholder="Ex: Carlos Eduardo" class="w-full rounded-xl border border-slate-300 pl-10 pr-4 py-2.5 text-sm focus:ring-2 focus:ring-blue-500 outline-none" />
+                </div>
+              </div>
+
+              <div class="pt-2">
+                <button type="submit" class="w-full py-3 px-6 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-sm transition flex items-center justify-center gap-2 shadow-md">
+                  <span>Continuar para Relação de Itens</span>
+                  <i class="fa-solid fa-arrow-right"></i>
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+
+        <!-- ETAPA 2: PREENCHIMENTO DOS VALORES -->
+        <div id="supplier-step-2" class="hidden space-y-5">
+          <div class="bg-white rounded-2xl border border-slate-200 p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-sm">
+            <div class="flex items-center gap-3">
+              <div class="w-10 h-10 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center font-bold">
+                <i class="fa-solid fa-check"></i>
+              </div>
+              <div>
+                <p class="text-xs text-slate-500">Cotando como:</p>
+                <p class="text-sm font-bold text-slate-900"><span id="display-sup-company"></span> <span class="font-normal text-slate-500">• Vendedor:</span> <span id="display-sup-seller" class="text-blue-700"></span></p>
+              </div>
+            </div>
+            <button type="button" onclick="backToSupplierStep1()" class="text-xs font-semibold text-slate-600 hover:text-blue-600 px-3 py-1.5 rounded-lg bg-slate-100 hover:bg-blue-50 transition self-start sm:self-auto">
+              <i class="fa-solid fa-pen mr-1"></i>Alterar Dados
+            </button>
+          </div>
+
+          <form onsubmit="handleSupplierSubmitQuote(event)" class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+            <div class="p-5 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+              <div>
+                <h3 class="text-base font-bold text-slate-900">Relação de Itens para Cotação</h3>
+                <p class="text-xs text-slate-500">Preencha o valor unitário (R$) e adicione observações (marca, prazo, embalagem) se necessário.</p>
+              </div>
+              <div class="text-right">
+                <span class="text-xs text-slate-500 block">Total Geral da Proposta:</span>
+                <span id="sup-grand-total" class="text-lg font-extrabold text-blue-700">R$ 0,00</span>
+              </div>
+            </div>
+
+            <div class="overflow-x-auto">
+              <table class="w-full text-left border-collapse min-w-[750px]">
+                <thead>
+                  <tr class="bg-slate-50 border-b border-slate-200 text-[11px] font-bold uppercase tracking-wider text-slate-500">
+                    <th class="py-3 px-4 w-12">#</th>
+                    <th class="py-3 px-4">Descrição do Item</th>
+                    <th class="py-3 px-4 w-20 text-center">Unid.</th>
+                    <th class="py-3 px-4 w-24 text-center">Qtd.</th>
+                    <th class="py-3 px-4 w-40">Valor Unitário (R$) *</th>
+                    <th class="py-3 px-4 w-36 text-right">Subtotal</th>
+                    <th class="py-3 px-4 min-w-[200px]">Observação do Item</th>
+                  </tr>
+                </thead>
+                <tbody id="supplier-items-tbody" class="divide-y divide-slate-100 text-sm"></tbody>
+              </table>
+            </div>
+
+            <div class="p-5 bg-slate-50 border-t border-slate-200 flex flex-col sm:flex-row items-center justify-between gap-4">
+              <p class="text-xs text-slate-500">
+                <i class="fa-solid fa-clock text-slate-400 mr-1"></i>
+                Data e horário do envio serão registrados automaticamente.
+              </p>
+              <button id="btn-supplier-submit" type="submit" class="w-full sm:w-auto px-8 py-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-sm transition flex items-center justify-center gap-2 shadow-md">
+                <i class="fa-solid fa-circle-check"></i>
+                <span>Concluir Cotação</span>
+              </button>
+            </div>
+          </form>
+        </div>
+
+        <!-- ETAPA 3: COMPROVANTE DE CONCLUSÃO (SEM BOTÃO DE VOLTAR AO ADMIN) -->
+        <div id="supplier-step-3" class="hidden bg-white rounded-2xl border border-slate-200 shadow-sm p-8 text-center space-y-5">
+          <div class="w-16 h-16 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center mx-auto text-3xl">
+            <i class="fa-solid fa-check-double"></i>
+          </div>
+          <div class="space-y-1">
+            <h3 class="text-2xl font-extrabold text-slate-900">Proposta Enviada com Sucesso!</h3>
+            <p class="text-sm text-slate-500">Seus preços foram registrados com segurança. Você já pode fechar esta janela.</p>
+          </div>
+
+          <div class="max-w-md mx-auto bg-slate-50 rounded-2xl p-4 border border-slate-200 text-left space-y-2 text-sm">
+            <div class="flex justify-between">
+              <span class="text-slate-500">Empresa:</span>
+              <span id="receipt-company" class="font-bold text-slate-900"></span>
+            </div>
+            <div class="flex justify-between">
+              <span class="text-slate-500">Vendedor:</span>
+              <span id="receipt-seller" class="font-semibold text-slate-800"></span>
+            </div>
+            <div class="flex justify-between">
+              <span class="text-slate-500">Data e Horário:</span>
+              <span id="receipt-timestamp" class="font-mono font-bold text-blue-700"></span>
+            </div>
+            <div class="flex justify-between pt-2 border-t border-slate-200">
+              <span class="text-slate-500">Valor Total Cotado:</span>
+              <span id="receipt-total" class="font-extrabold text-emerald-700 text-base"></span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+  </main>
+
+  <!-- RODAPÉ -->
+  <footer class="bg-white border-t border-slate-200 py-4 mt-12">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col sm:flex-row items-center justify-between gap-2 text-xs text-slate-500">
+      <span><strong>CotaPro</strong> — Sistema de Coleta de Preços e Mapa Comparativo</span>
+      <span>GitHub Pages + Google Sheets (Apps Script)</span>
+    </div>
+  </footer>
+
+  <!-- ===================================================================== -->
+  <!-- JAVASCRIPT                                                            -->
+  <!-- ===================================================================== -->
+  <script>
+    // =========================================================================
+    // CONFIGURAÇÃO PRINCIPAL: COLE AQUI A URL /exec DO SEU GOOGLE APPS SCRIPT
+    // (Isso garante que qualquer link gerado funcione em qualquer computador/celular)
+    // =========================================================================
+    const DEFAULT_APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzXhnpzOzvKfibj5wRdbV3O7c0s5sZNsVMWOEkZj6E6ltKwjnrFf89tstJrXqA_ZE9OEw/exec';
+
+    const STORAGE_KEY = 'cotapro_admin_cache_v2';
+    const CLOUD_URL_KEY = 'cotapro_apps_script_url_v2';
+    const ADMIN_PIN_SESSION_KEY = 'cotapro_admin_pin_session_v2';
+
+    let appState = {
+      quotes: [],
+      activeQuoteId: null,
+      currentAdminTab: 'setup',
+      supplierQuote: null,
+      supplierSession: { companyName: '', sellerName: '' }
+    };
+
+    function getAppsScriptUrl() {
+      const urlParam = new URLSearchParams(window.location.search).get('api');
+      if (urlParam && urlParam.startsWith('http')) return urlParam.trim();
+      const saved = (localStorage.getItem(CLOUD_URL_KEY) || '').trim();
+      return saved || DEFAULT_APPS_SCRIPT_URL.trim();
+    }
+
+    function setAppsScriptUrl(url) {
+      localStorage.setItem(CLOUD_URL_KEY, (url || '').trim());
+    }
+
+    function getSessionPin() {
+      return sessionStorage.getItem(ADMIN_PIN_SESSION_KEY) || '';
+    }
+
+    function setSessionPin(pin) {
+      if (pin) sessionStorage.setItem(ADMIN_PIN_SESSION_KEY, pin);
+      else sessionStorage.removeItem(ADMIN_PIN_SESSION_KEY);
+    }
+
+    function generateId(prefix = 'ID') {
+      return `${prefix}-${Math.random().toString(36).substring(2, 7).toUpperCase()}`;
+    }
+
+    function getNowBR() {
+      const now = new Date();
+      const pad = n => String(n).padStart(2, '0');
+      return `${pad(now.getDate())}/${pad(now.getMonth() + 1)}/${now.getFullYear()} ${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`;
+    }
+
+    function formatBRL(value) {
+      return (Number(value) || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+    }
+
+    function formatNumber(value) {
+      return (Number(value) || 0).toLocaleString('pt-BR', { maximumFractionDigits: 4 });
+    }
+
+    function escapeHTML(str) {
+      if (str === null || str === undefined) return '';
+      return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+    }
+
+    function showToast(message, type = 'info') {
+      const container = document.getElementById('toast-container');
+      if (!container) return;
+      const styles = {
+        success: 'bg-emerald-600 text-white border-emerald-700',
+        error: 'bg-rose-600 text-white border-rose-700',
+        warning: 'bg-amber-500 text-slate-950 border-amber-600',
+        info: 'bg-slate-800 text-white border-slate-900'
+      };
+      const icons = {
+        success: 'fa-circle-check',
+        error: 'fa-circle-exclamation',
+        warning: 'fa-triangle-exclamation',
+        info: 'fa-circle-info'
+      };
+      const toast = document.createElement('div');
+      toast.className = `pointer-events-auto flex items-center gap-2.5 px-4 py-3 rounded-xl border shadow-lg text-xs font-semibold animate-fade-in ${styles[type] || styles.info}`;
+      toast.innerHTML = `<i class="fa-solid ${icons[type] || icons.info} text-sm shrink-0"></i><span>${escapeHTML(message)}</span>`;
+      container.appendChild(toast);
+      setTimeout(() => {
+        toast.style.opacity = '0';
+        toast.style.transition = 'opacity 0.25s ease';
+        setTimeout(() => toast.remove(), 250);
+      }, 3600);
+    }
+
+    function openModal(title, bodyHTML, footerHTML = '') {
+      const modal = document.getElementById('custom-modal');
+      document.getElementById('modal-title').textContent = title;
+      document.getElementById('modal-body').innerHTML = bodyHTML;
+      document.getElementById('modal-footer').innerHTML = footerHTML || `<button type="button" onclick="closeModal()" class="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-900 text-white font-semibold text-xs">Fechar</button>`;
+      modal.classList.remove('hidden');
+      modal.classList.add('flex');
+    }
+
+    function closeModal() {
+      const modal = document.getElementById('custom-modal');
+      modal.classList.add('hidden');
+      modal.classList.remove('flex');
+    }
+
+    // =========================================================================
+    // COMUNICAÇÃO COM O BACKEND GOOGLE APPS SCRIPT
+    // =========================================================================
+    async function apiGet(paramsObj) {
+      const baseUrl = getAppsScriptUrl();
+      if (!baseUrl) return { ok: false, error: 'URL do Google Apps Script não configurada.' };
+      const url = new URL(baseUrl);
+      Object.keys(paramsObj).forEach(k => url.searchParams.set(k, paramsObj[k]));
+      url.searchParams.set('_t', Date.now());
+      const res = await fetch(url.toString(), { method: 'GET' });
+      return await res.json();
+    }
+
+    async function apiPost(payload) {
+      const baseUrl = getAppsScriptUrl();
+      if (!baseUrl) return { ok: false, error: 'URL do Google Apps Script não configurada.' };
+      const res = await fetch(baseUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify(payload)
+      });
+      return await res.json();
+    }
+
+    // =========================================================================
+    // ROTEAMENTO ESTRITO: FORNECEDOR VS ADMINISTRADOR
+    // =========================================================================
+    window.addEventListener('DOMContentLoaded', () => {
+      const params = new URLSearchParams(window.location.search);
+      const quoteIdParam = params.get('cotacao');
+      const modoParam = params.get('modo');
+
+      // Se a URL contém ?cotacao=... ou ?modo=fornecedor, trava estritamente no Portal do Fornecedor
+      if (quoteIdParam || modoParam === 'fornecedor') {
+        initStrictSupplierMode(quoteIdParam);
+      } else {
+        initStrictAdminMode();
+      }
+    });
+
+    // -------------------------------------------------------------------------
+    // MODO 1: PORTAL DO FORNECEDOR (ISOLADO)
+    // -------------------------------------------------------------------------
+    async function initStrictSupplierMode(quoteId) {
+      document.getElementById('supplier-header').classList.remove('hidden');
+      document.getElementById('supplier-view').classList.remove('hidden');
+
+      if (!quoteId) {
+        showSupplierError('Código da cotação não especificado no link.');
+        return;
+      }
+
+      const apiUrl = getAppsScriptUrl();
+      if (!apiUrl) {
+        showSupplierError('Sistema em configuração: a URL do servidor não foi vinculada a este link.');
+        return;
+      }
+
+      try {
+        const res = await apiGet({ action: 'getSupplierQuote', quoteId: quoteId });
+        if (!res.ok || !res.quote) {
+          showSupplierError(res.error || 'Cotação não encontrada ou já encerrada.');
+          return;
+        }
+        appState.supplierQuote = res.quote;
+        document.getElementById('supplier-loading-box').classList.add('hidden');
+        document.getElementById('supplier-main-content').classList.remove('hidden');
+        renderSupplierPortal();
+      } catch (err) {
+        showSupplierError('Erro de conexão ao carregar a cotação. Verifique sua internet e tente novamente.');
+      }
+    }
+
+    function showSupplierError(msg) {
+      document.getElementById('supplier-loading-box').classList.add('hidden');
+      document.getElementById('supplier-error-box').classList.remove('hidden');
+      document.getElementById('supplier-error-message').textContent = msg;
+    }
+
+    function renderSupplierPortal() {
+      const quote = appState.supplierQuote;
+      if (!quote) return;
+
+      document.getElementById('sup-quote-title').textContent = quote.title;
+      document.getElementById('sup-quote-id').textContent = `#${quote.id}`;
+      document.getElementById('sup-quote-meta').textContent = quote.deadline
+        ? `Prazo informado: ${quote.deadline} • ${quote.items.length} itens`
+        : `${quote.items.length} itens disponíveis para cotação`;
+
+      const closedAlert = document.getElementById('supplier-closed-alert');
+      const step1 = document.getElementById('supplier-step-1');
+      const step2 = document.getElementById('supplier-step-2');
+      const step3 = document.getElementById('supplier-step-3');
+
+      if (quote.finalized) {
+        closedAlert.classList.remove('hidden');
+        step1.classList.add('hidden');
+        step2.classList.add('hidden');
+        step3.classList.add('hidden');
+        return;
+      }
+
+      closedAlert.classList.add('hidden');
+      if (!appState.supplierSession.companyName || !appState.supplierSession.sellerName) {
+        step1.classList.remove('hidden');
+        step2.classList.add('hidden');
+        step3.classList.add('hidden');
+      } else {
+        step1.classList.add('hidden');
+        step2.classList.remove('hidden');
+        step3.classList.add('hidden');
+        renderSupplierItemsForm();
+      }
+    }
+
+    function handleSupplierIdentification(e) {
+      e.preventDefault();
+      const company = document.getElementById('sup-company-name').value.trim();
+      const seller = document.getElementById('sup-seller-name').value.trim();
+      if (!company || !seller) return;
+      appState.supplierSession = { companyName: company, sellerName: seller };
+      renderSupplierPortal();
+    }
+
+    function backToSupplierStep1() {
+      document.getElementById('sup-company-name').value = appState.supplierSession.companyName;
+      document.getElementById('sup-seller-name').value = appState.supplierSession.sellerName;
+      appState.supplierSession = { companyName: '', sellerName: '' };
+      renderSupplierPortal();
+    }
+
+    function renderSupplierItemsForm() {
+      const quote = appState.supplierQuote;
+      document.getElementById('display-sup-company').textContent = appState.supplierSession.companyName;
+      document.getElementById('display-sup-seller').textContent = appState.supplierSession.sellerName;
+
+      const tbody = document.getElementById('supplier-items-tbody');
+      if (!quote.items || quote.items.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="7" class="py-8 text-center text-slate-400">Nenhum item cadastrado nesta cotação.</td></tr>`;
+        return;
+      }
+
+      tbody.innerHTML = quote.items.map((item, idx) => `
+        <tr class="hover:bg-slate-50/70 transition">
+          <td class="py-3.5 px-4 font-mono text-xs text-slate-400">${idx + 1}</td>
+          <td class="py-3.5 px-4 font-semibold text-slate-800">${escapeHTML(item.description)}</td>
+          <td class="py-3.5 px-4 text-center"><span class="px-2 py-0.5 rounded bg-slate-100 text-slate-700 text-xs font-semibold">${escapeHTML(item.unit)}</span></td>
+          <td class="py-3.5 px-4 text-center font-bold text-slate-700">${formatNumber(item.quantity)}</td>
+          <td class="py-3.5 px-4">
+            <div class="relative">
+              <span class="absolute left-3 top-2 text-xs font-bold text-slate-400">R$</span>
+              <input type="number" step="0.01" min="0" placeholder="0,00"
+                data-item-id="${item.id}"
+                data-qty="${item.quantity}"
+                oninput="recalculateSupplierLiveTotals()"
+                class="sup-price-input w-full rounded-xl border border-slate-300 pl-9 pr-3 py-1.5 text-sm font-bold text-right text-slate-900 focus:ring-2 focus:ring-blue-500 outline-none" />
+            </div>
+          </td>
+          <td id="sup-subtotal-${item.id}" class="py-3.5 px-4 text-right font-bold text-slate-700 whitespace-nowrap">R$ 0,00</td>
+          <td class="py-3.5 px-4">
+            <input type="text" placeholder="Marca, prazo, obs..." data-obs-item-id="${item.id}"
+              class="sup-obs-input w-full rounded-xl border border-slate-300 px-3 py-1.5 text-xs text-slate-700 focus:ring-2 focus:ring-blue-500 outline-none" />
+          </td>
+        </tr>
+      `).join('');
+
+      recalculateSupplierLiveTotals();
+    }
+
+    function recalculateSupplierLiveTotals() {
+      let grandTotal = 0;
+      document.querySelectorAll('.sup-price-input').forEach(input => {
+        const itemId = input.getAttribute('data-item-id');
+        const qty = parseFloat(input.getAttribute('data-qty')) || 0;
+        const unitPrice = parseFloat(input.value) || 0;
+        const subtotal = qty * unitPrice;
+        grandTotal += subtotal;
+        const subEl = document.getElementById(`sup-subtotal-${itemId}`);
+        if (subEl) subEl.textContent = formatBRL(subtotal);
+      });
+      document.getElementById('sup-grand-total').textContent = formatBRL(grandTotal);
+    }
+
+    async function handleSupplierSubmitQuote(e) {
+      e.preventDefault();
+      const quote = appState.supplierQuote;
+      if (!quote || quote.finalized) return;
+
+      const responses = {};
+      let hasAtLeastOnePrice = false;
+      let grandTotal = 0;
+
+      document.querySelectorAll('.sup-price-input').forEach(input => {
+        const itemId = input.getAttribute('data-item-id');
+        const qty = parseFloat(input.getAttribute('data-qty')) || 0;
+        const val = parseFloat(input.value);
+        const unitPrice = (!isNaN(val) && val > 0) ? val : 0;
+        if (unitPrice > 0) hasAtLeastOnePrice = true;
+        grandTotal += unitPrice * qty;
+        responses[itemId] = { unitPrice, observation: '' };
+      });
+
+      document.querySelectorAll('.sup-obs-input').forEach(input => {
+        const itemId = input.getAttribute('data-obs-item-id');
+        if (responses[itemId]) responses[itemId].observation = input.value.trim();
+      });
+
+      if (!hasAtLeastOnePrice) {
+        showToast('Informe o valor unitário de pelo menos um item.', 'warning');
+        return;
+      }
+
+      const btn = document.getElementById('btn-supplier-submit');
+      btn.disabled = true;
+      btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i><span>Enviando Proposta...</span>';
+
+      const timestamp = getNowBR();
+      const submission = {
+        id: generateId('SUB'),
+        companyName: appState.supplierSession.companyName,
+        sellerName: appState.supplierSession.sellerName,
+        submittedAt: timestamp,
+        responses
+      };
+
+      try {
+        const res = await apiPost({
+          action: 'submitProposal',
+          quoteId: quote.id,
+          submission
+        });
+
+        if (!res.ok) {
+          showToast(res.error || 'Erro ao registrar proposta.', 'error');
+          btn.disabled = false;
+          btn.innerHTML = '<i class="fa-solid fa-circle-check"></i><span>Concluir Cotação</span>';
+          return;
+        }
+
+        document.getElementById('supplier-step-2').classList.add('hidden');
+        document.getElementById('supplier-step-3').classList.remove('hidden');
+        document.getElementById('receipt-company').textContent = submission.companyName;
+        document.getElementById('receipt-seller').textContent = submission.sellerName;
+        document.getElementById('receipt-timestamp').textContent = timestamp;
+        document.getElementById('receipt-total').textContent = formatBRL(grandTotal);
+        showToast('Proposta enviada com sucesso!', 'success');
+      } catch (err) {
+        showToast('Falha de rede ao enviar proposta. Tente novamente.', 'error');
+        btn.disabled = false;
+        btn.innerHTML = '<i class="fa-solid fa-circle-check"></i><span>Concluir Cotação</span>';
+      }
+    }
+
+    // -------------------------------------------------------------------------
+    // MODO 2: PAINEL DO ADMINISTRADOR (COM AUTENTICAÇÃO E CRUD COMPLETO)
+    // -------------------------------------------------------------------------
+    async function initStrictAdminMode() {
+      const savedUrl = getAppsScriptUrl();
+      document.getElementById('login-apps-script-url').value = savedUrl;
+
+      const existingPin = getSessionPin();
+      if (existingPin && savedUrl) {
+        const ok = await authenticateAndLoadAdmin(existingPin, savedUrl, true);
+        if (ok) return;
+      }
+
+      document.getElementById('admin-login-view').classList.remove('hidden');
+    }
+
+    async function handleAdminLogin(e) {
+      e.preventDefault();
+      const pin = document.getElementById('admin-login-pin').value.trim();
+      const url = document.getElementById('login-apps-script-url').value.trim();
+
+      if (!url) {
+        showToast('Informe a URL do Web App do Google Apps Script.', 'warning');
+        return;
+      }
+
+      const btn = document.getElementById('btn-admin-login-submit');
+      btn.disabled = true;
+      btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i><span>Autenticando...</span>';
+
+      const ok = await authenticateAndLoadAdmin(pin, url, false);
+      btn.disabled = false;
+      btn.innerHTML = '<i class="fa-solid fa-right-to-bracket"></i><span>Entrar no Painel Administrativo</span>';
+    }
+
+    async function authenticateAndLoadAdmin(pin, url, silent) {
+      setAppsScriptUrl(url);
+      try {
+        const res = await apiGet({ action: 'getAdminState', pin: pin });
+        if (!res.ok) {
+          if (!silent) showToast(res.error || 'Senha incorreta ou falha na API.', 'error');
+          setSessionPin('');
+          return false;
+        }
+
+        setSessionPin(pin);
+        appState.quotes = Array.isArray(res.quotes) ? res.quotes : [];
+
+        // Se a planilha ainda não tiver nenhuma cotação, cria uma inicial
+        if (appState.quotes.length === 0) {
+          const initialQ = {
+            id: generateId('COT'),
+            title: 'Cotação de Materiais #01',
+            deadline: '',
+            createdAt: getNowBR(),
+            finalized: false,
+            items: [],
+            submissions: [],
+            winnerOverrides: {}
+          };
+          appState.quotes.push(initialQ);
+          appState.activeQuoteId = initialQ.id;
+          await persistQuoteToSheets(initialQ);
+        } else if (!appState.activeQuoteId || !appState.quotes.some(q => q.id === appState.activeQuoteId)) {
+          appState.activeQuoteId = appState.quotes[0].id;
+        }
+
+        document.getElementById('admin-login-view').classList.add('hidden');
+        document.getElementById('admin-header').classList.remove('hidden');
+        document.getElementById('admin-view').classList.remove('hidden');
+        renderAdminView();
+        return true;
+      } catch (err) {
+        if (!silent) showToast('Erro ao conectar ao Google Apps Script. Verifique a URL.', 'error');
+        return false;
+      }
+    }
+
+    function logoutAdmin() {
+      setSessionPin('');
+      document.getElementById('admin-header').classList.add('hidden');
+      document.getElementById('admin-view').classList.add('hidden');
+      document.getElementById('admin-login-pin').value = '';
+      document.getElementById('admin-login-view').classList.remove('hidden');
+      showToast('Sessão administrativa encerrada.', 'info');
+    }
+
+    async function manualSyncFromCloud() {
+      const icon = document.getElementById('sync-icon');
+      icon.classList.add('fa-spin');
+      try {
+        const res = await apiGet({ action: 'getAdminState', pin: getSessionPin() });
+        if (res.ok && Array.isArray(res.quotes)) {
+          appState.quotes = res.quotes;
+          if (appState.quotes.length > 0 && !appState.quotes.some(q => q.id === appState.activeQuoteId)) {
+            appState.activeQuoteId = appState.quotes[0].id;
+          }
+          renderAdminView();
+          showToast('Dados atualizados do Google Sheets!', 'success');
+        } else {
+          showToast(res.error || 'Erro ao sincronizar.', 'error');
+        }
+      } catch (e) {
+        showToast('Falha de comunicação com o servidor.', 'error');
+      } finally {
+        icon.classList.remove('fa-spin');
+      }
+    }
+
+    async function persistQuoteToSheets(quote) {
+      try {
+        const res = await apiPost({
+          action: 'saveQuote',
+          pin: getSessionPin(),
+          quote: quote
+        });
+        if (!res.ok) {
+          showToast(res.error || 'Erro ao salvar no Google Sheets.', 'error');
+        }
+      } catch (e) {
+        showToast('Erro de rede ao salvar cotação.', 'error');
+      }
+    }
+
+    function getActiveQuote() {
+      let quote = appState.quotes.find(q => q.id === appState.activeQuoteId);
+      if (!quote && appState.quotes.length > 0) {
+        quote = appState.quotes[0];
+        appState.activeQuoteId = quote.id;
+      }
+      if (quote) {
+        if (!quote.items) quote.items = [];
+        if (!quote.submissions) quote.submissions = [];
+        if (!quote.winnerOverrides) quote.winnerOverrides = {};
+      }
+      return quote;
+    }
+
+    // Gera o link exclusivo do fornecedor para a cotação ativa (incluindo o parâmetro ?api= se não estiver fixo no código)
+    function getShareableSupplierLink(quoteIdOverride = null) {
+      const qId = quoteIdOverride || getActiveQuote()?.id || '';
+      const url = new URL(window.location.origin + window.location.pathname);
+      url.searchParams.set('cotacao', qId);
+      // Se DEFAULT_APPS_SCRIPT_URL estiver vazio no arquivo HTML, anexa ?api=... para o fornecedor conectar automaticamente
+      const currentApi = getAppsScriptUrl();
+      if (!DEFAULT_APPS_SCRIPT_URL && currentApi) {
+        url.searchParams.set('api', currentApi);
+      }
+      return url.toString();
+    }
+
+    function copySupplierLink(customUrl = null) {
+      const text = customUrl || document.getElementById('supplier-share-url')?.value || '';
+      if (!text) return;
+      navigator.clipboard?.writeText(text).then(() => {
+        showToast('Link exclusivo do fornecedor copiado!', 'success');
+      }).catch(() => {
+        const input = document.getElementById('supplier-share-url');
+        if (input) {
+          input.select();
+          document.execCommand('copy');
+          showToast('Link copiado!', 'success');
+        }
+      });
+    }
+
+    function switchAdminTab(tab) {
+      appState.currentAdminTab = tab;
+      const setupTab = document.getElementById('admin-tab-setup');
+      const resultsTab = document.getElementById('admin-tab-results');
+      const btnSetup = document.getElementById('tab-btn-setup');
+      const btnResults = document.getElementById('tab-btn-results');
+
+      if (tab === 'setup') {
+        setupTab.classList.remove('hidden');
+        resultsTab.classList.add('hidden');
+        btnSetup.className = 'pb-3 text-sm font-bold border-b-2 border-blue-600 text-blue-600 flex items-center gap-2 whitespace-nowrap transition';
+        btnResults.className = 'pb-3 text-sm font-semibold border-b-2 border-transparent text-slate-500 hover:text-slate-800 flex items-center gap-2 whitespace-nowrap transition';
+        renderAdminSetup();
+      } else {
+        setupTab.classList.add('hidden');
+        resultsTab.classList.remove('hidden');
+        btnResults.className = 'pb-3 text-sm font-bold border-b-2 border-blue-600 text-blue-600 flex items-center gap-2 whitespace-nowrap transition';
+        btnSetup.className = 'pb-3 text-sm font-semibold border-b-2 border-transparent text-slate-500 hover:text-slate-800 flex items-center gap-2 whitespace-nowrap transition';
+        populateFilterDropdowns();
+        renderResultsTable();
+      }
+    }
+
+    function switchActiveQuote(quoteId) {
+      appState.activeQuoteId = quoteId;
+      renderAdminView();
+    }
+
+    function renderQuoteSelector() {
+      const select = document.getElementById('active-quote-select');
+      select.innerHTML = appState.quotes.map(q => `
+        <option value="${q.id}" ${q.id === appState.activeQuoteId ? 'selected' : ''}>
+          ${escapeHTML(q.title)} (${(q.submissions || []).length} resp.)
+        </option>
+      `).join('');
+    }
+
+    function renderAdminView() {
+      renderQuoteSelector();
+      const quote = getActiveQuote();
+      if (!quote) return;
+
+      document.getElementById('admin-quote-title').textContent = quote.title;
+      document.getElementById('admin-quote-id-label').textContent = `ID: #${quote.id}`;
+      document.getElementById('admin-quote-deadline-label').textContent = quote.deadline ? `• Prazo: ${quote.deadline}` : '';
+
+      const shareUrl = getShareableSupplierLink(quote.id);
+      document.getElementById('supplier-share-url').value = shareUrl;
+      document.getElementById('supplier-preview-anchor').href = shareUrl;
+
+      const badge = document.getElementById('admin-quote-badge');
+      const btnFinalize = document.getElementById('btn-toggle-finalize');
+      const badgeFinalizedTab = document.getElementById('badge-finalized-status');
+
+      if (quote.finalized) {
+        badge.className = 'inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold bg-indigo-50 text-indigo-700 border border-indigo-200';
+        badge.innerHTML = '<i class="fa-solid fa-lock text-[10px]"></i> Pesquisa Finalizada';
+        btnFinalize.className = 'px-4 py-2.5 rounded-xl text-xs sm:text-sm font-semibold bg-amber-50 text-amber-700 hover:bg-amber-100 border border-amber-200 transition flex items-center gap-2';
+        btnFinalize.innerHTML = '<i class="fa-solid fa-lock-open"></i><span>Reabrir Pesquisa</span>';
+        badgeFinalizedTab.classList.remove('hidden');
+      } else {
+        badge.className = 'inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold bg-emerald-50 text-emerald-700 border border-emerald-200';
+        badge.innerHTML = '<span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span> Recebendo Propostas';
+        btnFinalize.className = 'px-4 py-2.5 rounded-xl text-xs sm:text-sm font-semibold bg-indigo-600 text-white hover:bg-indigo-700 transition flex items-center gap-2 shadow-sm';
+        btnFinalize.innerHTML = '<i class="fa-solid fa-flag-checkered"></i><span>Finalizar Pesquisa</span>';
+        badgeFinalizedTab.classList.add('hidden');
+      }
+
+      document.getElementById('badge-suppliers-count').textContent = quote.submissions.length;
+
+      if (appState.currentAdminTab === 'setup') renderAdminSetup();
+      else {
+        populateFilterDropdowns();
+        renderResultsTable();
+      }
+    }
+
+    function renderAdminSetup() {
+      const quote = getActiveQuote();
+      if (!quote) return;
+
+      document.getElementById('items-count-label').textContent = `${quote.items.length} ${quote.items.length === 1 ? 'item' : 'itens'}`;
+      const tbody = document.getElementById('admin-items-tbody');
+
+      if (quote.items.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="5" class="py-10 text-center text-slate-400">Nenhum item cadastrado. Adicione acima ou importe uma planilha Excel.</td></tr>`;
+      } else {
+        tbody.innerHTML = quote.items.map((item, idx) => `
+          <tr class="hover:bg-slate-50/80 transition">
+            <td class="py-2.5 px-4 font-mono text-xs text-slate-400">${idx + 1}</td>
+            <td class="py-2.5 px-4">
+              <input type="text" value="${escapeHTML(item.description)}"
+                onchange="updateItemDescription('${item.id}', this.value)"
+                class="w-full rounded-lg border border-transparent hover:border-slate-300 focus:border-blue-500 px-2 py-1 text-sm font-medium text-slate-800 outline-none bg-transparent focus:bg-white transition" />
+            </td>
+            <td class="py-2.5 px-4">
+              <span class="px-2 py-0.5 rounded-md bg-slate-100 text-slate-700 font-semibold text-xs">${escapeHTML(item.unit)}</span>
+            </td>
+            <td class="py-2.5 px-4">
+              <input type="number" step="any" min="0.01" value="${item.quantity}"
+                onchange="updateItemQuantity('${item.id}', this.value)"
+                class="w-24 rounded-lg border border-slate-300 px-2.5 py-1 text-sm font-semibold text-slate-800 focus:ring-2 focus:ring-blue-500 outline-none" />
+            </td>
+            <td class="py-2.5 px-4 text-right">
+              <button type="button" onclick="removeItem('${item.id}')" title="Remover Item" class="text-slate-400 hover:text-rose-600 p-1.5 rounded-lg hover:bg-rose-50 transition">
+                <i class="fa-solid fa-trash-can"></i>
+              </button>
+            </td>
+          </tr>
+        `).join('');
+      }
+
+      const supContainer = document.getElementById('suppliers-list-container');
+      document.getElementById('suppliers-total-pill').textContent = `${quote.submissions.length} ${quote.submissions.length === 1 ? 'proposta' : 'propostas'}`;
+
+      if (quote.submissions.length === 0) {
+        supContainer.innerHTML = `
+          <div class="text-center py-10 px-4 border-2 border-dashed border-slate-200 rounded-2xl">
+            <p class="text-sm font-semibold text-slate-700">Aguardando propostas dos fornecedores</p>
+            <p class="text-xs text-slate-500 mt-1">Copie o link exclusivo acima e envie aos fornecedores participantes.</p>
+          </div>
+        `;
+      } else {
+        supContainer.innerHTML = quote.submissions.map(sub => {
+          const totalProposal = calculateSubmissionTotal(quote, sub);
+          return `
+            <div class="p-4 rounded-xl border border-slate-200 hover:border-blue-300 bg-slate-50/50 transition space-y-2.5">
+              <div class="flex items-start justify-between gap-2">
+                <div>
+                  <div class="flex items-center gap-2">
+                    <span class="w-2 h-2 rounded-full bg-emerald-500"></span>
+                    <h4 class="font-bold text-slate-900 text-sm">${escapeHTML(sub.companyName)}</h4>
+                  </div>
+                  <p class="text-xs text-slate-600 mt-0.5"><i class="fa-solid fa-user-tie text-slate-400 mr-1"></i>Vendedor: <strong>${escapeHTML(sub.sellerName)}</strong></p>
+                </div>
+                <span class="text-sm font-extrabold text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-lg border border-emerald-200">${formatBRL(totalProposal)}</span>
+              </div>
+              <div class="flex items-center justify-between pt-2 border-t border-slate-200/70 text-xs text-slate-500">
+                <span><i class="fa-regular fa-calendar-check text-blue-600 mr-1"></i>${sub.submittedAt}</span>
+                <div class="flex items-center gap-3">
+                  <button type="button" onclick="viewSubmissionDetails('${sub.id}')" class="text-blue-600 hover:underline font-semibold">Ver Itens</button>
+                  <button type="button" onclick="deleteSubmission('${sub.id}')" title="Excluir proposta" class="text-slate-400 hover:text-rose-600 transition"><i class="fa-solid fa-trash"></i></button>
+                </div>
+              </div>
+            </div>
+          `;
+        }).join('');
+      }
+    }
+
+    function calculateSubmissionTotal(quote, submission) {
+      return quote.items.reduce((acc, item) => {
+        const resp = submission.responses[item.id];
+        const price = resp ? (Number(resp.unitPrice) || 0) : 0;
+        return acc + (price * (Number(item.quantity) || 0));
+      }, 0);
+    }
+
+    async function handleAddItem(e) {
+      e.preventDefault();
+      const quote = getActiveQuote();
+      const desc = document.getElementById('new-item-desc').value.trim();
+      const unit = document.getElementById('new-item-unit').value;
+      const qty = parseFloat(document.getElementById('new-item-qty').value);
+      if (!desc || isNaN(qty) || qty <= 0) return;
+
+      quote.items.push({ id: generateId('ITM'), description: desc, unit, quantity: qty });
+      document.getElementById('new-item-desc').value = '';
+      document.getElementById('new-item-qty').value = '';
+      document.getElementById('new-item-desc').focus();
+      renderAdminSetup();
+      await persistQuoteToSheets(quote);
+      showToast('Item salvo no Google Sheets!', 'success');
+    }
+
+    async function updateItemDescription(itemId, newDesc) {
+      const quote = getActiveQuote();
+      const item = quote.items.find(i => i.id === itemId);
+      const trimmed = newDesc.trim();
+      if (!item || !trimmed || item.description === trimmed) return;
+      item.description = trimmed;
+      await persistQuoteToSheets(quote);
+      showToast('Descrição do item atualizada.', 'info');
+    }
+
+    async function updateItemQuantity(itemId, newQtyValue) {
+      const quote = getActiveQuote();
+      const item = quote.items.find(i => i.id === itemId);
+      const parsed = parseFloat(newQtyValue);
+      if (!item || isNaN(parsed) || parsed <= 0) {
+        renderAdminView();
+        return;
+      }
+      item.quantity = parsed;
+      if (appState.currentAdminTab === 'results') renderResultsTable();
+      else renderAdminSetup();
+      await persistQuoteToSheets(quote);
+      showToast('Quantidade atualizada.', 'info');
+    }
+
+    async function removeItem(itemId) {
+      const quote = getActiveQuote();
+      quote.items = quote.items.filter(i => i.id !== itemId);
+      delete quote.winnerOverrides[itemId];
+      renderAdminSetup();
+      await persistQuoteToSheets(quote);
+      showToast('Item removido.', 'info');
+    }
+
+    async function deleteSubmission(subId) {
+      if (!confirm('Deseja realmente excluir a proposta deste fornecedor?')) return;
+      const quote = getActiveQuote();
+      quote.submissions = quote.submissions.filter(s => s.id !== subId);
+      Object.keys(quote.winnerOverrides).forEach(itemId => {
+        if (quote.winnerOverrides[itemId] === subId) delete quote.winnerOverrides[itemId];
+      });
+      renderAdminView();
+      await apiPost({ action: 'deleteSubmission', pin: getSessionPin(), submissionId: subId });
+      await persistQuoteToSheets(quote);
+      showToast('Proposta removida.', 'info');
+    }
+
+    // =========================================================================
+    // GERENCIADOR DE COTAÇÕES SALVAS (CONSULTAR, EDITAR, GERAR LINK, APAGAR)
+    // =========================================================================
+    function openSavedQuotesManagerModal() {
+      const rows = appState.quotes.map(q => {
+        const link = getShareableSupplierLink(q.id);
+        const isCurrent = q.id === appState.activeQuoteId;
+        return `
+          <div class="p-3.5 rounded-xl border ${isCurrent ? 'border-blue-500 bg-blue-50/40' : 'border-slate-200 bg-white'} flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div class="space-y-0.5">
+              <div class="flex items-center gap-2">
+                <span class="font-mono text-[11px] font-bold text-slate-500">#${q.id}</span>
+                <span class="px-2 py-0.5 rounded-full text-[10px] font-bold ${q.finalized ? 'bg-indigo-100 text-indigo-700' : 'bg-emerald-100 text-emerald-700'}">
+                  ${q.finalized ? 'Finalizada' : 'Aberta'}
+                </span>
+                ${isCurrent ? '<span class="text-[10px] font-bold text-blue-700">(Ativa)</span>' : ''}
+              </div>
+              <p class="font-bold text-sm text-slate-900">${escapeHTML(q.title)}</p>
+              <p class="text-xs text-slate-500">${(q.items || []).length} itens • ${(q.submissions || []).length} propostas • Criada em ${q.createdAt || '-'}</p>
+            </div>
+            <div class="flex flex-wrap items-center gap-1.5 shrink-0">
+              <button type="button" onclick="selectQuoteFromManager('${q.id}')" class="px-2.5 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold">
+                Abrir / Editar
+              </button>
+              <button type="button" onclick="copySupplierLink('${escapeHTML(link)}')" title="Copiar Link do Fornecedor" class="px-2.5 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold">
+                <i class="fa-solid fa-link mr-1"></i>Link
+              </button>
+              <button type="button" onclick="deleteQuoteById('${q.id}')" title="Apagar Cotação" class="px-2.5 py-1.5 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-700 text-xs font-semibold">
+                <i class="fa-solid fa-trash"></i>
+              </button>
+            </div>
+          </div>
+        `;
+      }).join('');
+
+      const bodyHTML = `
+        <div class="space-y-3">
+          <div class="flex items-center justify-between">
+            <p class="text-xs text-slate-500">Total de <strong>${appState.quotes.length}</strong> cotações armazenadas no Google Sheets.</p>
+            <button type="button" onclick="closeModal(); openNewQuoteModal();" class="px-3 py-1.5 rounded-lg bg-blue-600 text-white text-xs font-bold">
+              <i class="fa-solid fa-plus mr-1"></i>Nova Cotação
+            </button>
+          </div>
+          <div class="space-y-2.5">${rows || '<p class="text-xs text-slate-400">Nenhuma cotação salva.</p>'}</div>
+        </div>
+      `;
+
+      openModal('Cotações Salvas no Sistema', bodyHTML);
+    }
+
+    function selectQuoteFromManager(quoteId) {
+      appState.activeQuoteId = quoteId;
+      closeModal();
+      renderAdminView();
+    }
+
+    async function confirmDeleteActiveQuote() {
+      const quote = getActiveQuote();
+      if (!quote) return;
+      await deleteQuoteById(quote.id);
+    }
+
+    async function deleteQuoteById(quoteId) {
+      const target = appState.quotes.find(q => q.id === quoteId);
+      if (!target) return;
+      if (!confirm(`Tem certeza que deseja APAGAR permanentemente a cotação "${target.title}" e todas as propostas vinculadas?`)) {
+        return;
+      }
+
+      appState.quotes = appState.quotes.filter(q => q.id !== quoteId);
+      await apiPost({ action: 'deleteQuote', pin: getSessionPin(), quoteId });
+
+      if (appState.quotes.length === 0) {
+        const fresh = {
+          id: generateId('COT'),
+          title: 'Nova Cotação #01',
+          deadline: '',
+          createdAt: getNowBR(),
+          finalized: false,
+          items: [],
+          submissions: [],
+          winnerOverrides: {}
+        };
+        appState.quotes.push(fresh);
+        await persistQuoteToSheets(fresh);
+      }
+
+      if (!appState.quotes.some(q => q.id === appState.activeQuoteId)) {
+        appState.activeQuoteId = appState.quotes[0].id;
+      }
+
+      closeModal();
+      renderAdminView();
+      showToast('Cotação apagada do sistema e do Google Sheets.', 'info');
+    }
+
+    function openNewQuoteModal() {
+      const html = `
+        <form id="new-quote-form" onsubmit="handleCreateNewQuote(event)" class="space-y-4">
+          <div>
+            <label class="block text-xs font-bold uppercase text-slate-600 mb-1">Título / Identificação da Cotação *</label>
+            <input id="nq-title" type="text" required placeholder="Ex: Cotação Materiais de Escritório - Novembro" class="w-full rounded-xl border border-slate-300 px-3.5 py-2.5 text-sm outline-none focus:ring-2 focus:ring-blue-500" />
+          </div>
+          <div>
+            <label class="block text-xs font-bold uppercase text-slate-600 mb-1">Prazo / Observação Geral (Opcional)</label>
+            <input id="nq-deadline" type="text" placeholder="Ex: Até sexta-feira às 17h" class="w-full rounded-xl border border-slate-300 px-3.5 py-2.5 text-sm outline-none focus:ring-2 focus:ring-blue-500" />
+          </div>
+        </form>
+      `;
+      const footer = `
+        <button type="button" onclick="closeModal()" class="px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold text-xs">Cancelar</button>
+        <button type="submit" form="new-quote-form" class="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs">Criar Cotação e Gerar Link</button>
+      `;
+      openModal('Criar Nova Cotação', html, footer);
+    }
+
+    async function handleCreateNewQuote(e) {
+      e.preventDefault();
+      const title = document.getElementById('nq-title').value.trim();
+      const deadline = document.getElementById('nq-deadline').value.trim();
+      if (!title) return;
+
+      const newQ = {
+        id: generateId('COT'),
+        title,
+        deadline,
+        createdAt: getNowBR(),
+        finalized: false,
+        items: [],
+        submissions: [],
+        winnerOverrides: {}
+      };
+      appState.quotes.unshift(newQ);
+      appState.activeQuoteId = newQ.id;
+      closeModal();
+      switchAdminTab('setup');
+      renderAdminView();
+      await persistQuoteToSheets(newQ);
+      showToast('Cotação criada e link exclusivo gerado!', 'success');
+    }
+
+    function openEditQuoteModal() {
+      const quote = getActiveQuote();
+      if (!quote) return;
+      const html = `
+        <form id="edit-quote-form" onsubmit="handleUpdateQuoteInfo(event)" class="space-y-4">
+          <div>
+            <label class="block text-xs font-bold uppercase text-slate-600 mb-1">Título da Cotação *</label>
+            <input id="eq-title" type="text" required value="${escapeHTML(quote.title)}" class="w-full rounded-xl border border-slate-300 px-3.5 py-2.5 text-sm outline-none focus:ring-2 focus:ring-blue-500" />
+          </div>
+          <div>
+            <label class="block text-xs font-bold uppercase text-slate-600 mb-1">Prazo / Data Limite (Opcional)</label>
+            <input id="eq-deadline" type="text" value="${escapeHTML(quote.deadline || '')}" class="w-full rounded-xl border border-slate-300 px-3.5 py-2.5 text-sm outline-none focus:ring-2 focus:ring-blue-500" />
+          </div>
+        </form>
+      `;
+      const footer = `
+        <button type="button" onclick="closeModal()" class="px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold text-xs">Cancelar</button>
+        <button type="submit" form="edit-quote-form" class="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs">Salvar Alterações</button>
+      `;
+      openModal('Editar Cotação', html, footer);
+    }
+
+    async function handleUpdateQuoteInfo(e) {
+      e.preventDefault();
+      const quote = getActiveQuote();
+      quote.title = document.getElementById('eq-title').value.trim();
+      quote.deadline = document.getElementById('eq-deadline').value.trim();
+      closeModal();
+      renderAdminView();
+      await persistQuoteToSheets(quote);
+      showToast('Cotação atualizada.', 'success');
+    }
+
+    async function toggleFinalizeQuote() {
+      const quote = getActiveQuote();
+      if (!quote) return;
+      if (!quote.finalized) {
+        if (quote.submissions.length === 0) {
+          showToast('Ainda não há propostas de fornecedores para finalizar.', 'warning');
+          return;
+        }
+        quote.finalized = true;
+        renderAdminView();
+        switchAdminTab('results');
+        await persistQuoteToSheets(quote);
+        showToast('Pesquisa finalizada e apurada!', 'success');
+      } else {
+        quote.finalized = false;
+        renderAdminView();
+        await persistQuoteToSheets(quote);
+        showToast('Pesquisa reaberta para novos fornecedores.', 'info');
+      }
+    }
+
+    function viewSubmissionDetails(subId) {
+      const quote = getActiveQuote();
+      const sub = quote.submissions.find(s => s.id === subId);
+      if (!sub) return;
+
+      const rows = quote.items.map((item, idx) => {
+        const resp = sub.responses[item.id] || { unitPrice: 0, observation: '' };
+        const total = (Number(resp.unitPrice) || 0) * item.quantity;
+        return `
+          <tr class="border-b border-slate-100">
+            <td class="py-2 px-3 text-slate-500">${idx + 1}</td>
+            <td class="py-2 px-3 font-medium text-slate-800">${escapeHTML(item.description)}</td>
+            <td class="py-2 px-3 text-center">${item.quantity} ${item.unit}</td>
+            <td class="py-2 px-3 text-right font-semibold">${formatBRL(resp.unitPrice)}</td>
+            <td class="py-2 px-3 text-right font-bold text-slate-900">${formatBRL(total)}</td>
+            <td class="py-2 px-3 text-xs text-slate-500 italic">${resp.observation ? escapeHTML(resp.observation) : '—'}</td>
+          </tr>
+        `;
+      }).join('');
+
+      openModal(`Proposta — ${escapeHTML(sub.companyName)}`, `
+        <div class="space-y-4">
+          <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 bg-slate-50 p-3.5 rounded-xl border border-slate-200 text-xs">
+            <div><span class="text-slate-500 block">Empresa:</span><strong class="text-slate-900 text-sm">${escapeHTML(sub.companyName)}</strong></div>
+            <div><span class="text-slate-500 block">Vendedor:</span><strong class="text-slate-900 text-sm">${escapeHTML(sub.sellerName)}</strong></div>
+            <div><span class="text-slate-500 block">Data/Hora:</span><strong class="text-blue-700 font-mono">${sub.submittedAt}</strong></div>
+          </div>
+          <div class="overflow-x-auto border border-slate-200 rounded-xl">
+            <table class="w-full text-left border-collapse text-xs">
+              <thead>
+                <tr class="bg-slate-100 border-b border-slate-200 font-bold text-slate-600">
+                  <th class="py-2 px-3">#</th><th class="py-2 px-3">Item</th><th class="py-2 px-3 text-center">Qtd.</th>
+                  <th class="py-2 px-3 text-right">Unitário</th><th class="py-2 px-3 text-right">Total</th><th class="py-2 px-3">Observação</th>
+                </tr>
+              </thead>
+              <tbody>${rows}</tbody>
+            </table>
+          </div>
+        </div>
+      `);
+    }
+
+    // =========================================================================
+    // CONFIGURAÇÕES DE API E SENHA ADMINISTRATIVA
+    // =========================================================================
+    function openCloudAndSecurityModal() {
+      const currentUrl = getAppsScriptUrl();
+      const bodyHTML = `
+        <div class="space-y-5 text-xs">
+          <div class="space-y-2">
+            <label class="block font-bold uppercase text-slate-700">URL do Web App (Google Apps Script)</label>
+            <input id="cfg-apps-script-url" type="url" value="${escapeHTML(currentUrl)}" placeholder="https://script.google.com/macros/s/.../exec" class="w-full rounded-xl border border-slate-300 px-3 py-2 text-xs font-mono outline-none focus:ring-2 focus:ring-blue-500" />
+            <p class="text-[11px] text-slate-500">Dica: Para que os links gerados fiquem mais curtos, cole essa URL na constante <code>DEFAULT_APPS_SCRIPT_URL</code> dentro do arquivo <code>index.html</code> no GitHub.</p>
+          </div>
+
+          <hr class="border-slate-200" />
+
+          <div class="space-y-2">
+            <label class="block font-bold uppercase text-slate-700">Alterar Senha de Administrador (Opcional)</label>
+            <input id="cfg-new-admin-pin" type="password" placeholder="Deixe em branco para manter a senha atual" class="w-full rounded-xl border border-slate-300 px-3 py-2 text-xs outline-none focus:ring-2 focus:ring-blue-500" />
+          </div>
+        </div>
+      `;
+      const footerHTML = `
+        <button type="button" onclick="closeModal()" class="px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold text-xs">Cancelar</button>
+        <button type="button" onclick="saveCloudAndSecuritySettings()" class="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs">Salvar Configurações</button>
+      `;
+      openModal('Configurações do Sistema', bodyHTML, footerHTML);
+    }
+
+    async function saveCloudAndSecuritySettings() {
+      const newUrl = document.getElementById('cfg-apps-script-url').value.trim();
+      const newPin = document.getElementById('cfg-new-admin-pin').value.trim();
+
+      if (newUrl) setAppsScriptUrl(newUrl);
+
+      if (newPin) {
+        if (newPin.length < 4) {
+          showToast('A nova senha deve ter pelo menos 4 caracteres.', 'warning');
+          return;
+        }
+        const res = await apiPost({
+          action: 'changeAdminPin',
+          pin: getSessionPin(),
+          newPin: newPin
+        });
+        if (!res.ok) {
+          showToast(res.error || 'Erro ao alterar senha.', 'error');
+          return;
+        }
+        setSessionPin(newPin);
+        showToast('Senha administrativa alterada com sucesso!', 'success');
+      } else {
+        showToast('Configurações salvas!', 'success');
+      }
+
+      closeModal();
+      renderAdminView();
+    }
+
+    // =========================================================================
+    // IMPORTAÇÃO E EXPORTAÇÃO EXCEL (.XLSX)
+    // =========================================================================
+    let pendingExcelImportItems = [];
+
+    function normalizeHeaderKey(str) {
+      return String(str || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z0-9]/g, '');
+    }
+
+    function parseFlexibleNumber(val) {
+      if (typeof val === 'number') return val;
+      if (val === null || val === undefined) return NaN;
+      let cleaned = String(val).trim();
+      if (!cleaned) return NaN;
+      if (cleaned.includes(',') && cleaned.includes('.')) cleaned = cleaned.replace(/\./g, '').replace(',', '.');
+      else if (cleaned.includes(',')) cleaned = cleaned.replace(',', '.');
+      return parseFloat(cleaned);
+    }
+
+    function exportItemsToExcel() {
+      const quote = getActiveQuote();
+      const wb = XLSX.utils.book_new();
+      const rowsData = (quote.items && quote.items.length > 0)
+        ? quote.items.map(it => ({ Descricao: it.description, Unidade: it.unit, Quantidade: Number(it.quantity) || 1 }))
+        : [{ Descricao: 'Papel Sulfite A4 75g (Caixa 10 Resmas)', Unidade: 'CX', Quantidade: 10 }];
+      const ws = XLSX.utils.json_to_sheet(rowsData, { header: ['Descricao', 'Unidade', 'Quantidade'] });
+      ws['!cols'] = [{ wch: 52 }, { wch: 14 }, { wch: 16 }];
+      XLSX.utils.book_append_sheet(wb, ws, 'Itens_Cotacao');
+      XLSX.writeFile(wb, `Modelo_Itens_${quote.id}.xlsx`);
+    }
+
+    function triggerExcelImport() {
+      const input = document.getElementById('excel-file-input');
+      input.value = '';
+      input.click();
+    }
+
+    function handleExcelFileSelect(event) {
+      const file = event.target.files?.[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = function (e) {
+        try {
+          const wb = XLSX.read(new Uint8Array(e.target.result), { type: 'array' });
+          const sheetName = wb.SheetNames.find(n => normalizeHeaderKey(n) === 'itenscotacao') || wb.SheetNames[0];
+          const rawRows = XLSX.utils.sheet_to_json(wb.Sheets[sheetName], { defval: '' });
+          if (!rawRows.length) return showToast('Planilha vazia.', 'warning');
+
+          const keys = Object.keys(rawRows[0]);
+          let descKey = keys.find(k => ['descricao', 'desc', 'item', 'produto', 'material'].includes(normalizeHeaderKey(k)));
+          let unitKey = keys.find(k => ['unidade', 'unid', 'un', 'und'].includes(normalizeHeaderKey(k)));
+          let qtyKey = keys.find(k => ['quantidade', 'qtd', 'qtde', 'quant'].includes(normalizeHeaderKey(k)));
+
+          if (!descKey || !qtyKey) return showToast('Colunas "Descricao" e "Quantidade" obrigatórias.', 'error');
+
+          const validItems = [];
+          rawRows.forEach(row => {
+            const d = String(row[descKey] ?? '').trim();
+            const u = unitKey ? String(row[unitKey] ?? '').trim().toUpperCase() : 'UN';
+            const q = parseFlexibleNumber(row[qtyKey]);
+            if (d && !isNaN(q) && q > 0) {
+              validItems.push({ description: d, unit: u === 'L' ? 'LT' : (u || 'UN'), quantity: q });
+            }
+          });
+
+          if (!validItems.length) return showToast('Nenhum item válido encontrado.', 'error');
+          pendingExcelImportItems = validItems;
+
+          openModal('Confirmar Importação Excel', `
+            <p class="text-xs text-slate-600">Foram encontrados <strong>${validItems.length} itens válidos</strong> na planilha <strong>${escapeHTML(file.name)}</strong>.</p>
+          `, `
+            <button type="button" onclick="closeModal()" class="px-4 py-2 rounded-xl bg-slate-100 text-xs font-semibold">Cancelar</button>
+            <button type="button" onclick="confirmExcelImport('append')" class="px-4 py-2 rounded-xl bg-blue-600 text-white text-xs font-semibold">Adicionar aos Atuais</button>
+            <button type="button" onclick="confirmExcelImport('replace')" class="px-4 py-2 rounded-xl bg-emerald-600 text-white text-xs font-semibold">Substituir Itens</button>
+          `);
+        } catch (err) {
+          showToast('Erro ao processar arquivo Excel.', 'error');
+        }
+      };
+      reader.readAsArrayBuffer(file);
+    }
+
+    async function confirmExcelImport(mode) {
+      const quote = getActiveQuote();
+      const newItems = pendingExcelImportItems.map(it => ({
+        id: generateId('ITM'),
+        description: it.description,
+        unit: it.unit,
+        quantity: it.quantity
+      }));
+      if (mode === 'replace') {
+        quote.items = newItems;
+        quote.winnerOverrides = {};
+      } else {
+        quote.items = [...quote.items, ...newItems];
+      }
+      pendingExcelImportItems = [];
+      closeModal();
+      renderAdminSetup();
+      await persistQuoteToSheets(quote);
+      showToast(`${newItems.length} itens importados e salvos!`, 'success');
+    }
+
+    // =========================================================================
+    // APURAÇÃO DE VENCEDORES, FILTROS E PDF
+    // =========================================================================
+    function computeComparisonRows() {
+      const quote = getActiveQuote();
+      if (!quote) return [];
+      return quote.items.map((item, index) => {
+        const rankedOffers = [];
+        quote.submissions.forEach(sub => {
+          const resp = sub.responses[item.id];
+          const price = resp ? (Number(resp.unitPrice) || 0) : 0;
+          if (price > 0) {
+            rankedOffers.push({
+              submissionId: sub.id,
+              companyName: sub.companyName,
+              sellerName: sub.sellerName,
+              unitPrice: price,
+              observation: resp.observation || ''
+            });
+          }
+        });
+        rankedOffers.sort((a, b) => a.unitPrice - b.unitPrice);
+        rankedOffers.forEach((o, idx) => o.rank = idx + 1);
+
+        const overrideSubId = quote.winnerOverrides?.[item.id] || null;
+        let selectedOffer = overrideSubId ? rankedOffers.find(o => o.submissionId === overrideSubId) : null;
+        if (!selectedOffer && rankedOffers.length > 0) selectedOffer = rankedOffers[0];
+
+        const qty = Number(item.quantity) || 0;
+        const unitPrice = selectedOffer ? selectedOffer.unitPrice : 0;
+        const totalPrice = unitPrice * qty;
+        const highestPrice = rankedOffers.length > 0 ? rankedOffers[rankedOffers.length - 1].unitPrice : 0;
+        const savings = selectedOffer ? Math.max(0, (highestPrice - unitPrice) * qty) : 0;
+
+        return {
+          index: index + 1,
+          itemId: item.id,
+          description: item.description,
+          unit: item.unit,
+          quantity: qty,
+          rankedOffers,
+          selectedOffer,
+          isOverridden: Boolean(overrideSubId && selectedOffer && selectedOffer.rank > 1),
+          companyName: selectedOffer ? selectedOffer.companyName : 'Sem cotação',
+          sellerName: selectedOffer ? selectedOffer.sellerName : '',
+          observation: selectedOffer ? selectedOffer.observation : '',
+          unitPrice,
+          totalPrice,
+          savings
+        };
+      });
+    }
+
+    function populateFilterDropdowns() {
+      const quote = getActiveQuote();
+      if (!quote) return;
+      const rows = computeComparisonRows();
+      const unitSelect = document.getElementById('filter-unit');
+      const curU = unitSelect.value;
+      const units = [...new Set(quote.items.map(i => i.unit))].sort();
+      unitSelect.innerHTML = `<option value="">Todas</option>` + units.map(u => `<option value="${escapeHTML(u)}" ${u === curU ? 'selected' : ''}>${escapeHTML(u)}</option>`).join('');
+
+      const winnerSelect = document.getElementById('filter-winner');
+      const curW = winnerSelect.value;
+      const companies = [...new Set(rows.map(r => r.companyName))].sort();
+      winnerSelect.innerHTML = `<option value="">Todas</option>` + companies.map(c => `<option value="${escapeHTML(c)}" ${c === curW ? 'selected' : ''}>${escapeHTML(c)}</option>`).join('');
+    }
+
+    function getFilteredComparisonRows() {
+      const allRows = computeComparisonRows();
+      const fDesc = (document.getElementById('filter-desc')?.value || '').trim().toLowerCase();
+      const fUnit = (document.getElementById('filter-unit')?.value || '').trim();
+      const fQty = (document.getElementById('filter-qty')?.value || '').trim();
+      const fWinner = (document.getElementById('filter-winner')?.value || '').trim();
+      const fObs = (document.getElementById('filter-obs')?.value || '').trim().toLowerCase();
+      const fUnitPrice = parseFloat((document.getElementById('filter-unit-price')?.value || '').replace(',', '.'));
+      const fTotalPrice = parseFloat((document.getElementById('filter-total-price')?.value || '').replace(',', '.'));
+
+      return allRows.filter(row => {
+        if (fDesc && !row.description.toLowerCase().includes(fDesc)) return false;
+        if (fUnit && row.unit !== fUnit) return false;
+        if (fQty) {
+          if (fQty.startsWith('>=')) { const n = parseFloat(fQty.slice(2)); if (!isNaN(n) && !(row.quantity >= n)) return false; }
+          else if (fQty.startsWith('<=')) { const n = parseFloat(fQty.slice(2)); if (!isNaN(n) && !(row.quantity <= n)) return false; }
+          else if (fQty.startsWith('>')) { const n = parseFloat(fQty.slice(1)); if (!isNaN(n) && !(row.quantity > n)) return false; }
+          else if (fQty.startsWith('<')) { const n = parseFloat(fQty.slice(1)); if (!isNaN(n) && !(row.quantity < n)) return false; }
+          else { const n = parseFloat(fQty.replace(',', '.')); if (!isNaN(n) && row.quantity !== n) return false; }
+        }
+        if (fWinner && row.companyName !== fWinner) return false;
+        if (fObs && !row.observation.toLowerCase().includes(fObs)) return false;
+        if (!isNaN(fUnitPrice) && row.unitPrice > fUnitPrice) return false;
+        if (!isNaN(fTotalPrice) && row.totalPrice > fTotalPrice) return false;
+        return true;
+      });
+    }
+
+    function applyResultsFilters() { renderResultsTable(); }
+
+    function clearAllColumnFilters() {
+      ['filter-desc', 'filter-unit', 'filter-qty', 'filter-winner', 'filter-obs', 'filter-unit-price', 'filter-total-price'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.value = '';
+      });
+      renderResultsTable();
+    }
+
+    function filterByCompanyCard(companyName) {
+      const sel = document.getElementById('filter-winner');
+      sel.value = sel.value === companyName ? '' : companyName;
+      renderResultsTable();
+    }
+
+    async function changeItemWinner(itemId, submissionId) {
+      const quote = getActiveQuote();
+      quote.winnerOverrides[itemId] = submissionId;
+      populateFilterDropdowns();
+      renderResultsTable();
+      await persistQuoteToSheets(quote);
+      showToast('Vencedor do item atualizado!', 'success');
+    }
+
+    async function resetAllWinnerOverrides() {
+      const quote = getActiveQuote();
+      quote.winnerOverrides = {};
+      populateFilterDropdowns();
+      renderResultsTable();
+      await persistQuoteToSheets(quote);
+      showToast('Restaurado para menores preços.', 'info');
+    }
+
+    function renderResultsTable() {
+      const quote = getActiveQuote();
+      if (!quote) return;
+      const allRows = computeComparisonRows();
+      const filteredRows = getFilteredComparisonRows();
+      const tbody = document.getElementById('results-tbody');
+
+      const filteredGrandTotal = filteredRows.reduce((s, r) => s + r.totalPrice, 0);
+      const filteredSavings = filteredRows.reduce((s, r) => s + r.savings, 0);
+      const maxPossible = filteredGrandTotal + filteredSavings;
+      const savingsPct = maxPossible > 0 ? ((filteredSavings / maxPossible) * 100).toFixed(1) : '0.0';
+
+      document.getElementById('kpi-total-value').textContent = formatBRL(filteredGrandTotal);
+      document.getElementById('table-footer-total').textContent = formatBRL(filteredGrandTotal);
+      document.getElementById('kpi-filtered-items-info').textContent = `Exibindo ${filteredRows.length} de ${allRows.length} itens`;
+      document.getElementById('kpi-suppliers-count').textContent = quote.submissions.length;
+      document.getElementById('kpi-savings-value').textContent = formatBRL(filteredSavings);
+      document.getElementById('kpi-savings-percent').textContent = `${savingsPct}% abaixo do maior lance`;
+
+      renderWinnersSummaryCards(filteredRows);
+
+      if (filteredRows.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="8" class="py-10 text-center text-slate-400">Nenhum item encontrado para este filtro.</td></tr>`;
+        return;
+      }
+
+      tbody.innerHTML = filteredRows.map(row => {
+        let winnerCellHTML = '<span class="text-xs italic text-slate-400">Nenhuma proposta</span>';
+        if (row.rankedOffers.length > 0) {
+          const opts = row.rankedOffers.map(o => `<option value="${o.submissionId}" ${row.selectedOffer && o.submissionId === row.selectedOffer.submissionId ? 'selected' : ''}>${o.rank}º • ${escapeHTML(o.companyName)} (${formatBRL(o.unitPrice)})</option>`).join('');
+          const badge = row.selectedOffer.rank === 1
+            ? `<span class="px-1.5 py-0.5 rounded text-[10px] font-bold bg-emerald-100 text-emerald-800">1º Menor Preço</span>`
+            : `<span class="px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-800">${row.selectedOffer.rank}º Colocado</span>`;
+          winnerCellHTML = `
+            <div class="space-y-1">
+              <select onchange="changeItemWinner('${row.itemId}', this.value)" class="w-full rounded-lg border ${row.isOverridden ? 'border-amber-400 bg-amber-50/60' : 'border-slate-300 bg-white'} px-2 py-1.5 text-xs font-bold text-slate-800 outline-none">${opts}</select>
+              <div class="flex items-center justify-between gap-1">${badge}<span class="text-[11px] text-slate-500 truncate">Vend: ${escapeHTML(row.sellerName)}</span></div>
+            </div>
+          `;
+        }
+
+        return `
+          <tr class="hover:bg-blue-50/30 transition">
+            <td class="py-3 px-3 text-center font-mono text-xs text-slate-400">${row.index}</td>
+            <td class="py-3 px-3 font-semibold text-slate-800">${escapeHTML(row.description)}</td>
+            <td class="py-3 px-3"><span class="px-2 py-0.5 rounded bg-slate-100 text-slate-700 font-semibold text-xs">${escapeHTML(row.unit)}</span></td>
+            <td class="py-3 px-3"><input type="number" step="any" min="0.01" value="${row.quantity}" onchange="updateItemQuantity('${row.itemId}', this.value)" class="w-24 rounded-lg border border-slate-300 px-2 py-1 text-xs font-bold text-slate-900 outline-none bg-white" /></td>
+            <td class="py-3 px-3">${winnerCellHTML}</td>
+            <td class="py-3 px-3 text-xs text-slate-600">${row.observation ? `<span class="bg-slate-100 px-2 py-1 rounded-md inline-block">${escapeHTML(row.observation)}</span>` : '—'}</td>
+            <td class="py-3 px-3 text-right font-semibold text-slate-700 whitespace-nowrap">${formatBRL(row.unitPrice)}</td>
+            <td class="py-3 px-3 text-right font-extrabold text-slate-900 whitespace-nowrap">${formatBRL(row.totalPrice)}</td>
+          </tr>
+        `;
+      }).join('');
+    }
+
+    function renderWinnersSummaryCards(filteredRows) {
+      const container = document.getElementById('winners-summary-cards');
+      const curWinner = document.getElementById('filter-winner')?.value || '';
+      const map = {};
+      filteredRows.forEach(r => {
+        if (!r.selectedOffer) return;
+        if (!map[r.companyName]) map[r.companyName] = { companyName: r.companyName, sellerName: r.sellerName, count: 0, total: 0 };
+        map[r.companyName].count++;
+        map[r.companyName].total += r.totalPrice;
+      });
+      const list = Object.values(map).sort((a, b) => b.total - a.total);
+      if (!list.length) {
+        container.innerHTML = `<p class="text-xs text-slate-400 col-span-full">Nenhum vencedor apurado.</p>`;
+        return;
+      }
+      container.innerHTML = list.map(e => `
+        <div onclick="filterByCompanyCard('${escapeHTML(e.companyName).replace(/'/g, "\'")}')"
+          class="cursor-pointer p-3.5 rounded-xl border transition ${curWinner === e.companyName ? 'border-blue-600 bg-blue-50/70' : 'border-slate-200 bg-slate-50/60 hover:border-blue-300'}">
+          <div class="flex items-center justify-between gap-2">
+            <span class="font-bold text-xs text-slate-900 truncate">${escapeHTML(e.companyName)}</span>
+            <span class="text-[11px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 shrink-0">${e.count} itens</span>
+          </div>
+          <p class="text-base font-extrabold text-blue-700 mt-1.5">${formatBRL(e.total)}</p>
+          <p class="text-[11px] text-slate-500 truncate mt-0.5">Vendedor: ${escapeHTML(e.sellerName)}</p>
+        </div>
+      `).join('');
+    }
+
+    function generateFilteredPDF() {
+      const quote = getActiveQuote();
+      const filteredRows = getFilteredComparisonRows();
+      if (!filteredRows.length) return showToast('Nenhum item para exportar.', 'warning');
+
+      const { jsPDF } = window.jspdf;
+      const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
+      const grandTotal = filteredRows.reduce((s, r) => s + r.totalPrice, 0);
+
+      doc.setFillColor(30, 58, 138);
+      doc.rect(0, 0, 297, 26, 'F');
+      doc.setTextColor(255, 255, 255);
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(15);
+      doc.text('MAPA COMPARATIVO E RELAÇÃO DE VENCEDORES', 14, 11);
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(9.5);
+      doc.text(`Cotação: ${quote.title} (${quote.id})`, 14, 18);
+      doc.text(`Emissão: ${getNowBR()}`, 283, 11, { align: 'right' });
+
+      doc.autoTable({
+        startY: 32,
+        head: [['#', 'Descrição do Item', 'Unid.', 'Qtd.', 'Empresa Vencedora', 'Vendedor', 'Observação', 'Valor Unit.', 'Valor Total']],
+        body: filteredRows.map(r => [
+          r.index, r.description, r.unit, formatNumber(r.quantity),
+          r.selectedOffer ? `${r.companyName} (${r.selectedOffer.rank}º)` : 'Sem cotação',
+          r.sellerName || '-', r.observation || '-', formatBRL(r.unitPrice), formatBRL(r.totalPrice)
+        ]),
+        foot: [['', '', '', '', '', '', '', 'TOTAL GERAL:', formatBRL(grandTotal)]],
+        theme: 'grid',
+        styles: { fontSize: 8.5, cellPadding: 2.5 },
+        headStyles: { fillColor: [37, 99, 235], textColor: [255, 255, 255] },
+        footStyles: { fillColor: [15, 23, 42], textColor: [255, 255, 255], fontStyle: 'bold' }
+      });
+
+      doc.save(`cotacao_vencedores_${quote.id}.pdf`);
+      showToast('PDF exportado com sucesso!', 'success');
+    }
+  </script>
+</body>
+</html>
